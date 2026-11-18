@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f5e57">
+<title>Sumate · free sign-up sheets</title>
+<meta name="description" content="Free sign-up sheets: who brings what, turns, shifts, volunteers. Share one link, people add their name. No account, no ads. Open source.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/img/icon-192.png">
+<link rel="apple-touch-icon" href="/img/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/vendor/qrcode.js" defer></script>
+</head>
+<body>
+
+<!-- Home -->
+<section id="home" class="page">
+  <div class="col">
+    <div class="brand"><img src="/img/icon-192.png" alt="" class="logo"><h1>Sumate</h1></div>
+    <p class="lead">Who brings what, turns, shifts, volunteers: share one link and people add their name.</p>
+    <button id="makeBtn" class="btn primary big wide">Make a sign-up sheet</button>
+    <div id="mineWrap" hidden>
+      <h2 class="sub">Your sheets</h2>
+      <ul id="mine" class="mine"></ul>
+    </div>
+    <p class="small foot">Free, no account, no ads · Open source · <a href="https://github.com/kleiders3010/sumate">GitHub</a> · <a href="/privacy">Privacy</a></p>
+  </div>
+</section>
+
+<!-- Editor -->
+<section id="edit" class="page" hidden>
+  <header class="bar">
+    <button id="editBack" class="btn link">Back</button>
+    <b id="editHead">New sheet</b>
+    <button id="saveBtn" class="btn primary">Save</button>
+  </header>
+  <div class="col">
+    <input id="title" class="title-input" maxlength="120" placeholder="Title, e.g. Saturday lunch at grandma's">
+    <textarea id="details" rows="3" maxlength="2000" placeholder="When, where, anything people should know (optional)"></textarea>
+    <div>
+      <h2 class="sub">What you need</h2>
+      <p class="small hint">One line per thing or time slot, and how many people it needs.</p>
+    </div>
+    <ul id="rows" class="erows"></ul>
+    <div class="addline">
+      <button id="addRow" class="btn ghost">+ Add a line</button>
+      <button id="addHead" class="btn link">+ Add a heading</button>
+    </div>
+    <div class="card switches">
+      <label class="switch"><input type="checkbox" id="showNames" checked><span>Everyone can see who signed up</span></label>
+      <label class="switch"><input type="checkbox" id="openSw" checked><span>Open for sign-ups</span></label>
+    </div>
+    <p id="editMsg" class="msg" hidden></p>
+    <button id="delSheet" class="btn link danger-text" hidden>Delete this sheet</button>
+  </div>
+</section>
+
+<!-- Sheet -->
+<section id="sheet" class="page" hidden>
+  <header class="bar">
+    <button id="sheetBack" class="btn link">Sumate</button>
+    <span></span>
+    <span class="barBtns">
+      <button id="editBtn" class="btn ghost" hidden>Edit</button>
+      <button id="shareBtn" class="btn primary">Share</button>
+    </span>
+  </header>
+  <div class="col wide">
+    <div>
+      <h1 id="sTitle" class="stitle"></h1>
+      <p id="sDetails" class="details"></p>
+    </div>
+    <div class="progress">
+      <div class="track"><div id="fill" class="fill"></div></div>
+      <span id="count" class="small"></span>
+    </div>
+    <p id="closedNote" class="note" hidden>Sign-ups are closed.</p>
+    <div id="ownerNote" class="note owner" hidden></div>
+    <div id="srows" class="srows"></div>
+    <div id="ownerTools" class="tools" hidden>
+      <button id="csvBtn" class="btn ghost">Download (CSV)</button>
+    </div>
+    <p id="sheetMsg" class="msg" hidden></p>
+  </div>
+</section>
+
+<!-- Missing sheet -->
+<section id="gone" class="page" hidden>
+  <div class="col center">
+    <h1 class="stitle">This sheet doesn't exist</h1>
+    <p>It was deleted, or the link is not complete.</p>
+    <button id="goneHome" class="btn primary">Make your own</button>
+  </div>
+</section>
+
+<!-- Sign-up box (over the sheet) -->
+<div id="signBox" class="sheetbox" hidden>
+  <form id="signForm" class="box">
+    <p class="small">Sign up for</p>
+    <b id="signRow" class="boxtitle"></b>
+    <label for="signName" class="lbl">Your name</label>
+    <input id="signName" maxlength="60" autocomplete="name" required>
+    <label for="signNote" class="lbl">Note (optional)</label>
+    <input id="signNote" maxlength="200" placeholder="e.g. vegan lasagna, I'll be 10 min late">
+    <p id="signMsg" class="msg" hidden></p>
+    <div class="boxbtns">
+      <button type="button" id="signCancel" class="btn ghost">Cancel</button>
+      <button class="btn primary">Add me</button>
+    </div>
+  </form>
+</div>
+
+<!-- Share box -->
+<div id="shareBox" class="sheetbox" hidden>
+  <div class="box">
+    <b class="boxtitle">Share this sheet</b>
+    <div id="qr" class="qr"></div>
+    <div class="linkline"><input id="shareLink" readonly><button id="copyLink" class="btn primary">Copy</button></div>
+    <button id="nativeShare" class="btn ghost wide" hidden>Send with…</button>
+    <div id="ownerLinkWrap" class="ownerlink" hidden>
+      <p class="small"><b>Your organizer link</b>: only with it can you edit this sheet. Keep it; don't share it.</p>
+      <div class="linkline"><input id="ownerLink" readonly><button id="copyOwner" class="btn ghost">Copy</button></div>
+    </div>
+    <button id="shareClose" class="btn link">Close</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

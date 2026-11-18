@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.jurisgames.sumate",
+    "sha256_cert_fingerprints": [
+      "B7:A7:9F:A1:C5:71:E6:DA:B3:78:8D:46:D7:72:87:5D:BE:50:A9:92:5F:D6:02:96:AD:1D:C5:C1:07:29:A7:DB"
+    ]
+  }
+}]

@@ -1,5 +1,6 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "/i18n.js";
+import { openFeedback } from "/feedback.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => {
@@ -39,6 +40,14 @@ function forgetSheet(id) {
   safeSet("sumate.sheets", JSON.stringify(mySheets().filter((s) => s.id !== id)));
 }
 const keyFor = (id) => mySheets().find((s) => s.id === id)?.key || "";
+
+// "Send feedback" (start page and every sheet): what the person writes, plus, if they keep the tick, the page they
+// are on. Never the sheet, its links or anyone's name.
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".fbOpen")) return;
+  e.preventDefault();
+  openFeedback({ app: "sumate", t, toast, details: () => ({ page: document.querySelector(".page:not([hidden])")?.id || "" }) });
+});
 
 // ---------- small UI helpers ----------
 let toastTimer;

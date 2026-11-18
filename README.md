@@ -11,6 +11,7 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
 - The organizer can edit, remove anyone, close the sheet, show names only to themselves, and download the list
   as a spreadsheet (CSV). Editing works from any device with the organizer link.
 - The page updates by itself, and the server refuses a spot that was just taken.
+- Send feedback (start page and every sheet): a problem or an idea, an optional email for an answer and, if you keep the tick, technical details (browser, page, errors; never the sheet or names). "See what's sent" shows it all first. Emailed to hello@jurisgames.com through [jurisgames-feedback](https://github.com/kleiders3010/jurisgames-feedback), which stores nothing.
 
 ## How it works
 A small Cloudflare Worker (`worker/`) serves the web app (`web/`, plain HTML/CSS/JS, no build step) and keeps

@@ -1,8 +1,14 @@
 // UI language: the browser's, or ?lang=xx in the link. English text is the key; other languages map it.
 // Add a language: copy the "es" block, translate the right-hand side.
 
+import { FEEDBACK_ES } from "/feedback.js";
+
 const DICT = {
   es: { // Spanish as spoken in Argentina (vos)
+    ...FEEDBACK_ES,
+    "Report a problem or idea": "Contar un problema o una idea",
+    "Feedback": "Comentarios",
+    "Include technical details": "Incluir detalles técnicos",
     "Sumate · free sign-up sheets": "Sumate · listas para anotarse, gratis",
     "Who brings what, turns, shifts, volunteers: share one link and people add their name.": "Quién trae qué, turnos, horarios, voluntarios: compartís un enlace y cada uno se anota.",
     "Make a sign-up sheet": "Crear una lista",

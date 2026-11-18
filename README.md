@@ -3,7 +3,7 @@
 Who brings what, turns, shifts, volunteers: make a list of what you need, share one link (or a QR code), and
 people add their name to a free spot. No account for anyone, no ads, no limits, open source. English and Spanish.
 
-**Use it:** https://signup.jurisgames.com · [Privacy](https://signup.jurisgames.com/privacy)
+**Use it:** https://signup.jurisgames.com · **Android app:** [Google Play](https://play.google.com/store/apps/details?id=com.jurisgames.sumate) · [Privacy](https://signup.jurisgames.com/privacy)
 
 - One line per thing or time slot, with how many people it needs (or any number). Headings group lines by day
   or kind.

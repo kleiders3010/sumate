@@ -98,8 +98,8 @@ with sync_playwright() as p:
     # feature graphic 1024x500
     icon = base64.b64encode(open(os.path.join(HERE, "..", "..", "web", "img", "icon-512.png"), "rb").read()).decode()
     for lang, tag, rows in [
-        ("en", "Free sign-up sheets", [("Main dish", "Marta · Leo", "Full"), ("Dessert", "Sofi", "1 of 2"), ("Wash the dishes", "Pablo · Juli", "")]),
-        ("es", "Listas para anotarse, gratis", [("Plato principal", "Marta · Leo", "Completo"), ("Postre", "Sofi", "1 de 2"), ("Lavar los platos", "Pablo · Juli", "")]),
+        ("en", "Sign-up sheets for anything", [("Main dish", "Marta · Leo", "Full"), ("Dessert", "Sofi", "1 of 2"), ("Wash the dishes", "Pablo · Juli", "")]),
+        ("es", "Listas para anotarse", [("Plato principal", "Marta · Leo", "Completo"), ("Postre", "Sofi", "1 de 2"), ("Lavar los platos", "Pablo · Juli", "")]),
     ]:
         cards = "".join(f'<div class="r"><div class="t"><b>{a}</b><span>{c}</span></div><div class="n">{n}</div></div>' for a, n, c in rows)
         html = f"""<html><body style="margin:0"><div style="width:1024px;height:500px;background:#0f5e57;display:flex;align-items:center;

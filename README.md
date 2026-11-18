@@ -19,6 +19,7 @@ each sheet in its own Durable Object. A sheet nobody changes for 90 days is dele
 ## Run locally
     cd worker && npx wrangler dev --port 8790
     # open http://127.0.0.1:8790
-    node test.mjs   # checks on what the server accepts
+    node test.mjs              # checks on what the server accepts
+    python e2e.py [base-url]   # whole flow in a headless browser (playwright)
 
 License: Apache-2.0. QR codes: qrcode-generator by Kazuhiko Arase (MIT, `web/vendor/qrcode.js`).

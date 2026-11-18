@@ -7,3 +7,4 @@ dist/
 *.jks
 *.keystore
 local.properties
+worker/sumate-shots/

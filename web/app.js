@@ -1,6 +1,9 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
-import { t, translatePage, LANG } from "/i18n.js";
-import { openFeedback } from "/feedback.js";
+import { t, translatePage, LANG } from "./i18n.js";
+import { openFeedback } from "./feedback.js";
+// the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
+const BASE = new URL(".", import.meta.url).pathname;
+const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => {
@@ -41,6 +44,21 @@ function forgetSheet(id) {
 }
 const keyFor = (id) => mySheets().find((s) => s.id === id)?.key || "";
 
+function copies() {
+  try { return JSON.parse(safeGet("sumate.copies") || "{}") || {}; } catch { return {}; }
+}
+function keepCopy(id, v) {
+  const all = copies();
+  delete all[id];
+  const next = { [id]: { at: Date.now(), v }, ...all };
+  safeSet("sumate.copies", JSON.stringify(Object.fromEntries(Object.entries(next).slice(0, 30))));
+}
+function dropCopy(id) {
+  const all = copies();
+  delete all[id];
+  safeSet("sumate.copies", JSON.stringify(all));
+}
+
 // "Send feedback" (start page and every sheet): what the person writes, plus, if they keep the tick, the page they
 // are on. Never the sheet, its links or anyone's name.
 document.addEventListener("click", (e) => {
@@ -68,22 +86,44 @@ async function copy(text) {
   catch { toast(t("Select the link and copy it")); }
 }
 
-// ---------- server ----------
+// ---------- servers ----------
+// Every sheet is kept on two servers that copy each other (Kleider: "all parts of the app should work even if one
+// the pieces break down"): this site's own (Cloudflare) and the game host's (games.jurisgames.com/sumate). When one
+// doesn't answer, the app asks the other, and stays with the one that answered.
+const RP = new URLSearchParams(location.search);
+const OURS = /(^|\.)jurisgames\.com$|\.github\.io$/.test(location.hostname);
+const SERVERS = [
+  RP.get("server") || (location.hostname.endsWith(".github.io") ? "https://signup.jurisgames.com" : ""),
+  RP.get("server2") || (OURS && !RP.get("server") ? "https://games.jurisgames.com/sumate" : null),
+].filter((s) => s !== null);
+let at = 0;
+try { at = Math.min(Number(sessionStorage.getItem("sumate.server")) || 0, SERVERS.length - 1); } catch {}
+
 async function api(path, opts = {}, id) {
   const headers = { "X-Sign-Tokens": TOKEN };
   const key = id && keyFor(id);
   if (key) headers["X-Sheet-Key"] = key;
   if (opts.body) headers["Content-Type"] = "application/json";
-  let r;
-  try {
-    r = await fetch(path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
-  } catch {
-    return { error: "offline" };
+  let failed = { error: "offline" };
+  for (const i of SERVERS.length > 1 ? [at, 1 - at] : [0]) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    let r;
+    try {
+      r = await fetch(SERVERS[i] + path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined, signal: ctl.signal });
+    } catch {
+      continue; // no answer: the other one
+    } finally {
+      clearTimeout(timer);
+    }
+    let data = {};
+    try { data = await r.json(); } catch {}
+    if (r.status >= 500) { failed = { error: r.status === 503 ? "offline" : data.error || "error", status: r.status }; continue; }
+    if (at !== i) { at = i; try { sessionStorage.setItem("sumate.server", String(i)); } catch {} }
+    if (!r.ok) return { error: data.error || "error", status: r.status };
+    return data;
   }
-  let data = {};
-  try { data = await r.json(); } catch {}
-  if (!r.ok) return { error: data.error || "error", status: r.status };
-  return data;
+  return failed;
 }
 const errText = (e) => ({
   offline: t("No connection. Try again."),
@@ -99,7 +139,7 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 function go(path, replace = false) {
-  history[replace ? "replaceState" : "pushState"](null, "", path);
+  history[replace ? "replaceState" : "pushState"](null, "", BASE + path.slice(1) + location.search);
   route();
 }
 window.addEventListener("popstate", route);
@@ -110,13 +150,13 @@ let pollTimer = null;
 function route() {
   closeBoxes();
   clearInterval(pollTimer);
-  const p = location.pathname;
+  const p = here();
   // an organizer link carries its key after #k= : keep it on this device, then hide it from the address bar
   const hk = location.hash.match(/^#k=([a-z0-9]{24})$/);
   const m = p.match(/^\/s\/([a-z0-9]{10})(\/edit)?$/);
   if (m && hk) {
     rememberSheet(m[1], { key: hk[1] });
-    history.replaceState(null, "", p);
+    history.replaceState(null, "", location.pathname + location.search);
   }
   if (p === "/new") return openEditor(null);
   if (m && m[2]) return openEditor(m[1]);
@@ -227,7 +267,7 @@ async function openEditor(id) {
   if (id) {
     if (!keyFor(id)) return go("/s/" + id, true);
     const v = await api("/api/sheets/" + id, {}, id);
-    if (v.error) return show("gone");
+    if (v.error) return v.status === 404 ? show("gone") : go("/s/" + id, true); // no server: the sheet page says so
     s = v.sheet;
   }
   $("#title").value = s.title;
@@ -272,42 +312,56 @@ $("#delSheet").onclick = async () => {
   const r = await api("/api/sheets/" + editId, { method: "DELETE" }, editId);
   if (r.error && r.status !== 404) return showMsg("#editMsg", errText(r.error));
   forgetSheet(editId);
+  dropCopy(editId);
   toast(t("Sheet deleted"));
   go("/", true);
 };
 
 // ---------- sheet ----------
 async function openSheet(id, quiet = false) {
-  const v = await api("/api/sheets/" + id, {}, id);
+  let v = await api("/api/sheets/" + id, {}, id);
+  if (v.error && v.status === 404) {
+    if (!quiet) { forgetSheet(id); dropCopy(id); show("gone"); }
+    return;
+  }
   if (v.error) {
-    if (v.status === 404) {
-      if (!quiet) { forgetSheet(id); show("gone"); }
-      return;
-    }
-    if (!quiet) { show("sheet"); showMsg("#sheetMsg", errText(v.error)); }
+    // no server answers: the last copy this device saw, to read (nothing can be changed until one is back)
+    const c = copies()[id];
+    if (quiet && !current?.stale) return;
+    if (c) {
+      current = { ...c.v, stale: c.at };
+      renderSheet();
+      showMsg("#sheetMsg", t("Can't reach the sheet right now. This is the copy saved on this device ({when}). Signing up works again when it's back.", { when: new Date(c.at).toLocaleString(LANG) }));
+    } else showMsg("#sheetMsg", errText(v.error));
+    if (!quiet) { show("sheet"); poll(id); }
     return;
   }
   current = v;
+  keepCopy(id, v);
   showMsg("#sheetMsg", "");
   const known = mySheets().find((s) => s.id === id);
   if (known || v.entries.some((e) => e.mine)) rememberSheet(id, { title: v.sheet.title });
   renderSheet();
   if (!quiet) {
     show("sheet");
-    clearInterval(pollTimer);
-    pollTimer = setInterval(() => {
-      if (document.visibilityState === "visible" && $("#signBox").hidden) openSheet(id, true);
-    }, 8000);
+    poll(id);
   }
+}
+function poll(id) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(() => {
+    if (document.visibilityState === "visible" && $("#signBox").hidden) openSheet(id, true);
+  }, 8000);
 }
 
 function renderSheet() {
   const v = current;
   const s = v.sheet;
+  const live = !v.stale; // a copy saved on this device: read only
   document.title = s.title + " · Sumate";
   $("#sTitle").textContent = s.title;
   $("#sDetails").textContent = s.details;
-  $("#editBtn").hidden = !v.owner;
+  $("#editBtn").hidden = !v.owner || !live;
   $("#ownerTools").hidden = !v.owner;
   $("#closedNote").hidden = s.open;
   const on = $("#ownerNote");
@@ -339,7 +393,7 @@ function renderSheet() {
     if (list.length) {
       const people = el("div", "people");
       for (const e of list) {
-        const canX = e.mine || v.owner;
+        const canX = live && (e.mine || v.owner);
         const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
         chip.append(el("span", "", e.name || t("Taken")));
         if (e.note) chip.append(el("i", "", "· " + e.note));
@@ -354,7 +408,7 @@ function renderSheet() {
       }
       card.append(people);
     }
-    if (!full && (s.open || v.owner)) {
+    if (live && !full && (s.open || v.owner)) {
       const b = el("button", "btn ghost join", t("Sign up"));
       b.onclick = () => openSign(r);
       card.append(b);
@@ -374,11 +428,13 @@ async function removeEntry(e) {
   const r = await api(`/api/sheets/${id}/signups/${e.id}`, { method: "DELETE" }, id);
   if (r.error) return toast(errText(r.error));
   current = r;
+  keepCopy(id, r);
   renderSheet();
   toast(e.mine ? t("Removed you") : t("Removed {name}", { name: e.name }));
 }
 
 // ---------- sign-up box ----------
+const signId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
 let signRow = null;
 function openSign(r) {
   signRow = r;
@@ -400,7 +456,8 @@ $("#signForm").onsubmit = async (e) => {
   btn.disabled = true;
   const r = await api(`/api/sheets/${id}/signups`, {
     method: "POST",
-    body: { row: signRow.id, name, note: $("#signNote").value, token: TOKEN },
+    // its own id: sent again to the other server (no answer from the first), it is still one sign-up
+    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: TOKEN },
   }, id);
   btn.disabled = false;
   if (r.error) {
@@ -409,6 +466,7 @@ $("#signForm").onsubmit = async (e) => {
     return;
   }
   current = r.view;
+  keepCopy(id, current);
   rememberSheet(id, { title: current.sheet.title });
   closeBoxes();
   renderSheet();
@@ -416,9 +474,9 @@ $("#signForm").onsubmit = async (e) => {
 };
 
 // ---------- share ----------
-const sheetUrl = (id) => location.origin + "/s/" + id;
+const sheetUrl = (id) => location.origin + BASE + "s/" + id;
 function openShare(firstTime = false) {
-  const id = current?.id || location.pathname.split("/")[2];
+  const id = current?.id || here().split("/")[2];
   const url = sheetUrl(id);
   $("#shareLink").value = url;
   const key = keyFor(id);

@@ -1,7 +1,7 @@
 // UI language: the browser's, or ?lang=xx in the link. English text is the key; other languages map it.
 // Add a language: copy the "es" block, translate the right-hand side.
 
-import { FEEDBACK_ES } from "/feedback.js";
+import { FEEDBACK_ES } from "./feedback.js";
 
 const DICT = {
   es: { // Spanish as spoken in Argentina (vos)
@@ -55,6 +55,7 @@ const DICT = {
     "Copied": "Copiado",
     "Select the link and copy it": "Seleccioná el enlace y copialo",
     "No connection. Try again.": "Sin conexión. Probá de nuevo.",
+    "Can't reach the sheet right now. This is the copy saved on this device ({when}). Signing up works again when it's back.": "No se puede llegar a la lista ahora. Esta es la copia guardada en este dispositivo ({when}). Vas a poder anotarte cuando vuelva.",
     "Someone just took the last spot.": "Alguien acaba de tomar el último lugar.",
     "Something went wrong. Try again.": "Algo salió mal. Probá de nuevo.",
     "Sheet": "Lista",

@@ -17,10 +17,26 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
 A small Cloudflare Worker (`worker/`) serves the web app (`web/`, plain HTML/CSS/JS, no build step) and keeps
 each sheet in its own Durable Object. A sheet nobody changes for 90 days is deleted automatically.
 
+**Two servers.** Every sheet is also kept on a second server, `kinetic/server.mjs`, which runs the very same Worker
+and Sheet code on Node (on the game host at games.jurisgames.com/sumate). Either one takes sign-ups and edits; after
+each change a server sends its copy to the other (`POST /api/sync/<id>`, with a key both share: `SYNC_KEY`, a Worker
+secret, and `DATA_DIR/sync-key` on the game host), which merges it and answers with the result. Merging never loses a
+sign-up (they add up by id, removed ones are remembered), the sheet's text is the one edited last, and a deleted sheet
+stays deleted. A server that can't reach the other tries again (every 15 s up to every 5 minutes); a server asked for
+a sheet it doesn't have asks the other one. The app asks the other server when one doesn't answer, and with no server
+at all shows the device's last copy of the sheet, read only.
+
+**A copy of the site** is published on GitHub Pages (https://kleiders3010.github.io/sumate/, by
+`.github/workflows/pages.yml` with `tools/mirror.mjs`), for when signup.jurisgames.com is down; it uses the same two
+servers.
+
 ## Run locally
     cd worker && npx wrangler dev --port 8790
     # open http://127.0.0.1:8790
     node test.mjs              # checks on what the server accepts
     python e2e.py [base-url]   # whole flow in a headless browser (playwright)
+    python failover_test.py    # two sheet servers (kinetic/server.mjs) killed in turn, the device copy
+    python mirror_test.py      # the GitHub Pages copy, built and served locally (live: mirror_test.py <pages url> <site>)
+    python live_test.py        # the live site: copies both ways, the app through the second server
 
 License: Apache-2.0. QR codes: qrcode-generator by Kazuhiko Arase (MIT, `web/vendor/qrcode.js`).

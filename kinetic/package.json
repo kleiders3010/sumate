@@ -1,0 +1,8 @@
+{
+  "name": "sumate-sheet-server",
+  "private": true,
+  "type": "module",
+  "description": "Sumate's second sheet server (the same Worker and Sheet code as on Cloudflare) for the game host on Kinetic",
+  "main": "server.mjs",
+  "scripts": { "pack": "node pack.mjs", "start": "node pack.mjs && node server.mjs" }
+}

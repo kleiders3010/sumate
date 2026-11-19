@@ -22,13 +22,16 @@ at signup.jurisgames.com.</p>
 
 <h2>Sheets and sign-ups</h2>
 <ul>
-  <li><b>A sheet</b> (its title, details and lines) is kept on our server so everyone with the link can see it.</li>
+  <li><b>A sheet</b> (its title, details and lines) is kept on our servers so everyone with the link can see it:
+    on Cloudflare and, as a second copy, on our own game server (see "The servers").</li>
   <li><b>When you sign up</b>, the name and the optional note you type are kept with the sheet. Anyone with the
     sheet's link sees them, unless the organizer chose to show names only to the organizer.</li>
-  <li>Your device keeps your name, a random code that lets you remove your own sign-ups, and the list of sheets
-    you made or joined. It is not linked to who you are.</li>
+  <li>Your device keeps your name, a random code that lets you remove your own sign-ups, the list of sheets
+    you made or joined, and the last version it saw of the last 30 sheets you opened (as you saw them), so you can
+    still read a sheet when no server can be reached. It is not linked to who you are.</li>
   <li>You can remove your own sign-up at any time. The organizer can remove any sign-up or delete the whole sheet,
-    which deletes it from the server at once. A sheet nobody changes for 90 days is deleted automatically.</li>
+    which deletes it from the server at once and from the second copy right after (if that server is down at that
+    moment, as soon as it is back). A sheet nobody changes for 90 days is deleted automatically.</li>
 </ul>
 
 <h2 id="delete">Delete your data</h2>
@@ -37,13 +40,22 @@ at signup.jurisgames.com.</p>
     server at once. Only the device you signed up from can do this; from another device, ask the organizer.</li>
   <li><b>A whole sheet</b> with everyone's sign-ups: the organizer opens it, taps Edit, then "Delete this sheet" twice.
     Everything in it is deleted from the server at once.</li>
-  <li><b>On your device</b>: clearing the site's data (or uninstalling the app) deletes your saved name and list of sheets.</li>
-  <li>Anything left is deleted automatically 90 days after the sheet's last change. Nothing is kept after that,
-    and there are no backups of sheets. Help: hello@jurisgames.com</li>
+  <li><b>On your device</b>: clearing the site's data (or uninstalling the app) deletes your saved name, list of
+    sheets and saved copies.</li>
+  <li>Anything left is deleted automatically 90 days after the sheet's last change. Until then a sheet remembers the
+    random codes of removed sign-ups, and a deleted sheet leaves only its own random codes, so the other server's copy
+    can't bring them back; never a name or a note. Nothing is kept after that, and there are no other backups of
+    sheets. Help: hello@jurisgames.com</li>
 </ol>
 
-<h2>The server</h2>
-<p>Sumate runs on Cloudflare Workers. Cloudflare may keep standard security logs.</p>
+<h2>The servers</h2>
+<p>Sumate runs on Cloudflare Workers, and every sheet is also kept on our own game server (games.jurisgames.com, a
+rented server reached through Cloudflare), so sheets keep working if one of them stops: each change is copied to the
+other one, and the app uses whichever answers. Both delete everything the same way. Our game server keeps no logs of
+who connects; to stop floods it counts, for one minute and only in memory, how many sheets and changes each address
+makes. The pages are also published on GitHub Pages (kleiders3010.github.io/sumate), so the app opens even when
+signup.jurisgames.com does not; GitHub serves that copy and may keep standard visit logs, and its sheets are the same
+sheets on the same two servers. Cloudflare may keep standard security logs.</p>
 
 <h2>Feedback</h2>
 <p>"Send feedback" sends what you write, its kind (a problem, an idea, something else) and, only if you type it, your
@@ -68,6 +80,7 @@ anuncios, sin analíticas; nunca pedimos email ni teléfono, salvo el email opci
 cada uno escribe al anotarse; los ve cualquiera con el enlace, salvo que quien organiza elija mostrarlos solo a
 sí mismo. Podés sacarte de una lista cuando quieras; quien organiza puede quitar a cualquiera o borrar la lista,
 y se borra del servidor en el momento. Para borrar tu nombre: abrí la lista y tocá la × al lado de tu nombre. Para borrar toda la lista: quien organiza toca Editar y después "Borrar esta lista" dos veces. Una lista que nadie cambia en 90 días se borra sola.
+Sumate funciona en Cloudflare Workers y cada lista también se guarda en nuestro propio servidor de juegos (games.jurisgames.com, un servidor alquilado al que se llega a través de Cloudflare), así que las listas siguen andando si uno se cae: cada cambio se copia al otro y la app usa el que responda. Los dos borran todo igual (si uno está caído cuando se borra algo, lo borra apenas vuelve). Hasta que la lista vence se guardan los códigos al azar de las anotaciones quitadas, y de una lista borrada quedan solo sus códigos, para que la copia del otro servidor no las traiga de vuelta; nunca un nombre ni una nota. No hay otras copias de seguridad. Nuestro servidor no guarda registros de quién se conecta; para frenar abusos cuenta, durante un minuto y solo en memoria, cuántas listas y cambios hace cada dirección. Las páginas también están publicadas en GitHub Pages (kleiders3010.github.io/sumate), para que la app abra aunque signup.jurisgames.com no ande; GitHub sirve esa copia y puede guardar registros habituales de visitas, y sus listas son las mismas, en los mismos dos servidores. Tu dispositivo guarda tu nombre, un código al azar para poder sacarte, tus listas y cómo viste por última vez las últimas 30 listas que abriste, para poder leerlas aunque no responda ningún servidor; borrar los datos del sitio (o desinstalar la app) borra todo eso.
 "Enviar comentarios" manda lo que escribís, de qué tipo es (un problema, una idea, otra cosa) y, solo si lo escribís, tu email, a feedback.jurisgames.com, que lo envía por email a hello@jurisgames.com sin guardar nada. Con "Incluir detalles técnicos" (tildado al principio; destildalo para no mandarlos, y "Ver lo que se envía" muestra todo antes de enviarlo) también manda tu navegador y sistema, tamaño de pantalla y de ventana, idioma, tipo de conexión, errores recientes de la página y en qué página estás. Nunca la lista, sus links ni el nombre de nadie. El email queda en nuestra casilla lo necesario para responder y arreglar las cosas. Para frenar abusos, el servidor cuenta los mensajes por red y por día con un código irreversible de la dirección (nunca la dirección), que se borra al día siguiente.
 Contacto: hello@jurisgames.com</p>
 </div>

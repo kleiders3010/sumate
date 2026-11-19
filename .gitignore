@@ -8,3 +8,5 @@ dist/
 *.keystore
 local.properties
 worker/sumate-shots/
+kinetic/sheet.mjs
+kinetic/data/

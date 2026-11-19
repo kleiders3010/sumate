@@ -5,6 +5,8 @@ import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut } f
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
+// on someone else's page in an iframe (the share box's website code adds ?embed; go() keeps it)
+const EMBED = new URLSearchParams(location.search).has("embed");
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => {
@@ -462,6 +464,7 @@ $("#delSheet").onclick = async () => {
 
 // ---------- sheet ----------
 async function openSheet(id, quiet = false) {
+  if (EMBED) $("#openFull").href = sheetUrl(id);
   let v = await api("/api/sheets/" + id, {}, id);
   if (v.error && v.status === 404) {
     if (!quiet) { forgetSheet(id); dropCopy(id); show("gone"); }
@@ -728,6 +731,60 @@ $("#nativeShare").onclick = () => {
   navigator.share({ title: s?.title || "Sumate", text: s?.title, url: $("#shareLink").value }).catch(() => {});
 };
 $("#shareClose").onclick = closeBoxes;
+
+// website code: the sheet itself in an iframe that grows with it, or a button that opens it (like SignUpGenius'
+// "share on website"; theirs embeds only on the paid plan)
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+function embedCode() {
+  const url = $("#shareLink").value;
+  const title = current?.sheet?.title || "Sumate";
+  if ($("#embedKind").value === "button")
+    return `<a href="${esc(url)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#0f5e57;color:#fff;font:600 17px system-ui,sans-serif;text-decoration:none">${esc(t("Sign up: {title}", { title }))}</a>`;
+  const origin = new URL(url).origin;
+  return `<iframe src="${esc(url)}?embed" title="${esc(title)}" loading="lazy" style="width:100%;max-width:760px;height:640px;border:0"></iframe>\n`
+    + `<script>addEventListener("message",function(e){if(e.origin!=="${origin}"||!e.data||!e.data.sumate)return;`
+    + `document.querySelectorAll("iframe").forEach(function(f){if(f.contentWindow===e.source)f.style.height=e.data.sumate+"px"})})</script>`;
+}
+$("#embedBtn").onclick = () => {
+  $("#embedWrap").hidden = !$("#embedWrap").hidden;
+  $("#embedCode").value = embedCode();
+};
+$("#embedKind").onchange = () => { $("#embedCode").value = embedCode(); };
+$("#copyEmbed").onclick = () => copy($("#embedCode").value);
+
+if (EMBED) {
+  document.body.classList.add("embed");
+  // the page is as tall as the iframe, so a box or a message shows next to what was tapped, not at the bottom
+  let tapY = 0;
+  addEventListener("pointerdown", (e) => {
+    tapY = e.pageY;
+    document.body.style.setProperty("--toastAt", Math.max(8, tapY + 30) + "px");
+    // before a box opens (its field takes focus at once, and focus scrolls the page around to it); a tap inside an
+    // open box leaves it where it is
+    if (e.target.closest?.(".sheetbox")) return;
+    const page = document.querySelector(".page:not([hidden])")?.offsetHeight || 0;
+    document.body.style.setProperty("--at", Math.max(8, Math.min(tapY - 80, page - 420)) + "px");
+  }, true);
+  for (const box of document.querySelectorAll(".sheetbox")) {
+    new MutationObserver(() => {
+      if (box.hidden) { document.body.style.minHeight = ""; return; }
+      const b = box.querySelector(".box");
+      const page = document.querySelector(".page:not([hidden])")?.offsetHeight || 0;
+      document.body.style.minHeight = b.offsetHeight + 16 + "px";
+      document.body.style.setProperty("--at", Math.max(8, Math.min(tapY - 80, page - b.offsetHeight - 8)) + "px");
+      document.activeElement?.scrollIntoView?.({ block: "nearest" });
+    }).observe(box, { attributes: true, attributeFilter: ["hidden"] });
+  }
+  // tell the page around it how tall the sheet is (its website code resizes the iframe)
+  let lastH = 0;
+  const tell = () => {
+    const p = document.querySelector(".page:not([hidden])");
+    const h = Math.ceil(Math.max(p ? p.offsetHeight : 0, parseFloat(document.body.style.minHeight) || 0));
+    if (h && h !== lastH && parent !== window) { lastH = h; parent.postMessage({ sumate: h }, "*"); }
+  };
+  new ResizeObserver(tell).observe(document.body);
+  for (const p of PAGES) new ResizeObserver(tell).observe($("#" + p));
+}
 
 function closeBoxes() {
   $("#signBox").hidden = true;

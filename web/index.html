@@ -137,6 +137,7 @@
     </div>
     <p id="sheetMsg" class="msg" hidden></p>
     <p class="small foot"><a href="#" class="fbOpen">Report a problem or idea</a></p>
+    <p class="small embedfoot"><a id="openFull" target="_blank" rel="noopener">Sumate ↗</a></p>
   </div>
 </section>
 
@@ -187,6 +188,16 @@
     <div id="qr" class="qr"></div>
     <div class="linkline"><input id="shareLink" readonly><button id="copyLink" class="btn primary">Copy</button></div>
     <button id="nativeShare" class="btn ghost wide" hidden>Send with…</button>
+    <button id="embedBtn" type="button" class="btn link">Put it on a website</button>
+    <div id="embedWrap" class="embedcode" hidden>
+      <select id="embedKind">
+        <option value="sheet">The sheet itself, on your page</option>
+        <option value="button">A button that opens it</option>
+      </select>
+      <textarea id="embedCode" rows="4" readonly></textarea>
+      <button id="copyEmbed" type="button" class="btn ghost">Copy the code</button>
+      <p class="small">Paste it into your page's HTML.</p>
+    </div>
     <div id="ownerLinkWrap" class="ownerlink" hidden>
       <p class="small"><b>Your organizer link</b>: only with it can you edit this sheet. Keep it; don't share it.</p>
       <div class="linkline"><input id="ownerLink" readonly><button id="copyOwner" class="btn ghost">Copy</button></div>

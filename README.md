@@ -18,6 +18,9 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
   with the sheet; people sign up right there) or a button that opens it.
 - Make a copy: the organizer starts next week's sheet from this one, with the same lines, times and questions,
   nobody signed up yet, and every day moved a week (or a day, two or four weeks) at once.
+- Waiting list (a switch for the sheet): once a line is full, people can join its waiting list. They wait in the order
+  they signed up; when someone leaves (or the organizer makes room for more), the first one waiting is in by
+  themselves, with nothing for anyone to do, and their page tells them. The download has a waiting-list column.
 - People sign up with their name and an optional note ("vegan lasagna") and can remove themselves later.
 - The organizer can ask up to 5 questions of their own on signing up (a written answer or one of a few choices,
   required or not). Only the organizer (and each person, their own) sees the answers; the download has a column per question.
@@ -53,6 +56,7 @@ servers.
     python timing_test.py      # opening and closing at set times, lines that stop before they start, a final list
     python embed_test.py       # the website code: the sheet on another site, signing up from inside it
     python copy_test.py        # a copy: same lines a week later, nobody on it, the original untouched
+    python waitlist_test.py    # the waiting list: in order, moving in by itself when someone leaves
     python e2e.py [base-url]   # whole flow in a headless browser (playwright)
     python failover_test.py    # two sheet servers (kinetic/server.mjs) killed in turn, the device copy
     python mirror_test.py      # the GitHub Pages copy, built and served locally (live: mirror_test.py <pages url> <site>)

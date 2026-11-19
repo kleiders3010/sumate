@@ -332,6 +332,7 @@ function readEditor() {
     closes: fromLocalInput($("#closesAt").value),
     lock: $("#lockSel").value === "" ? undefined : Number($("#lockSel").value),
     final: $("#finalSw").checked,
+    wait: $("#waitSw").checked,
     rows: [...$("#rows").children].map((li) => ({
       id: li.dataset.id || undefined,
       text: li.querySelector("input").value,
@@ -441,6 +442,7 @@ async function openEditor(id, from) {
   $("#closesAt").value = toLocalInput(s.closes);
   $("#lockSel").value = typeof s.lock === "number" ? String(s.lock) : "";
   $("#finalSw").checked = !!s.final;
+  $("#waitSw").checked = !!s.wait;
   $("#timing").hidden = !(s.opens || s.closes || typeof s.lock === "number" || s.final);
   for (const r of s.rows) $("#rows").append(rowEl(r));
   for (const q of s.asks || []) $("#asks").append(askEl(q));
@@ -513,9 +515,13 @@ async function openSheet(id, quiet = false) {
     if (!quiet) { show("sheet"); poll(id); }
     return;
   }
+  const before = copies()[id]?.v;
   current = v;
   if (v.now) skew = v.now - Date.now();
   keepCopy(id, v);
+  const waited = new Set((before?.entries || []).filter((e) => e.mine && e.wait).map((e) => e.id));
+  const moved = v.entries.find((e) => e.mine && !e.wait && waited.has(e.id));
+  if (moved) toast(t("A spot opened: you're in for {what}", { what: v.sheet.rows.find((r) => r.id === moved.row)?.text || "" }));
   showMsg("#sheetMsg", "");
   const known = mySheets().find((s) => s.id === id);
   if (known || v.entries.some((e) => e.mine)) rememberSheet(id, { title: v.sheet.title });
@@ -567,14 +573,16 @@ function renderSheet() {
   wrap.replaceChildren();
   for (const r of s.rows) {
     if (r.heading) { wrap.append(el("h2", "shead", r.text)); continue; }
-    const list = byRow.get(r.id) || [];
+    const all = byRow.get(r.id) || [];
+    const list = all.filter((e) => !e.wait); // in
+    const waiting = all.filter((e) => e.wait).sort((a, b) => a.wait - b.wait); // waiting list, in order
     if (r.need) { need += r.need; have += Math.min(list.length, r.need); }
     const full = r.need && list.length >= r.need;
     const card = el("div", "srow" + (full ? " full" : "") + (r.id === justJoined ? " just" : ""));
     const top = el("div", "top");
     top.append(el("span", "what", r.text));
     top.append(el("span", "left",
-      full ? t("Full") : r.need ? t("{n} of {m}", { n: list.length, m: r.need }) : list.length ? t("{n} signed up", { n: list.length }) : ""));
+      full ? (waiting.length ? t("Full · {n} waiting", { n: waiting.length }) : t("Full")) : r.need ? t("{n} of {m}", { n: list.length, m: r.need }) : list.length ? t("{n} signed up", { n: list.length }) : ""));
     card.append(top);
     if (r.date || r.start) {
       const w = whenText(r, LANG, s.tz);
@@ -604,15 +612,39 @@ function renderSheet() {
       }
       card.append(people);
     }
+    if (waiting.length) {
+      const wl = el("div", "people waiting");
+      wl.append(el("span", "wlabel", t("Waiting list")));
+      for (const e of waiting) {
+        const canX = live && (v.owner || (e.mine && !(s.final && shut(s, r, now))));
+        const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
+        chip.append(el("span", "", e.wait + ". " + (e.name || t("Taken"))));
+        if (e.note) chip.append(el("i", "", "· " + e.note));
+        const said = answersOf(e, s.asks);
+        if (said.some(Boolean)) {
+          chip.append(el("i", "ans", "· " + said.filter(Boolean).join(" · ")));
+          chip.title = s.asks.map((q, i) => said[i] && q.text + " " + said[i]).filter(Boolean).join("\n");
+        }
+        if (canX) {
+          const x = el("button", "x", "×");
+          x.title = e.mine ? t("Remove me") : t("Remove {name}", { name: e.name });
+          x.setAttribute("aria-label", x.title);
+          x.onclick = () => removeEntry(e);
+          chip.append(x);
+        }
+        wl.append(chip);
+      }
+      card.append(wl);
+    }
     if (r.date && list.some((e) => e.mine)) {
       const c = el("button", "btn link cal", "📅 " + t("Add to my calendar"));
       c.onclick = () => openCal(r);
       card.append(c);
     }
     const why = shut(s, r, now);
-    if (why === "locked" && !full) card.append(el("span", "shut", t("No more sign-ups for this one")));
-    if (live && !full && (!why || v.owner)) {
-      const b = el("button", "btn ghost join", t("Sign up"));
+    if (why === "locked" && (!full || s.wait)) card.append(el("span", "shut", t("No more sign-ups for this one")));
+    if (live && (!full || s.wait) && (!why || v.owner)) {
+      const b = el("button", "btn ghost join" + (full ? " wait" : ""), full ? t("Join the waiting list") : t("Sign up"));
       b.onclick = () => openSign(r);
       card.append(b);
     }
@@ -643,6 +675,7 @@ let justJoined = null; // the line this device just signed up for: shown lit for
 function openSign(r) {
   signRow = r;
   $("#signRow").textContent = r.text;
+  $("#signWait").hidden = !(r.need && current.entries.filter((e) => e.row === r.id && !e.wait).length >= r.need);
   $("#signName").value = safeGet("sumate.name") || "";
   $("#signNote").value = "";
   const box = $("#signAsks");
@@ -694,6 +727,14 @@ $("#signForm").onsubmit = async (e) => {
   rememberSheet(id, { title: current.sheet.title });
   closeBoxes();
   renderSheet();
+  const placed = current.entries.find((x) => x.mine && x.wait && x.row === signRow.id);
+  if (placed && !current.entries.some((x) => x.mine && !x.wait && x.row === signRow.id)) {
+    justJoined = signRow.id;
+    renderSheet();
+    $(".srow.just")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setTimeout(() => { justJoined = null; $(".srow.just")?.classList.remove("just"); }, 2500);
+    return toast(t("You're on the waiting list, number {n}", { n: placed.wait }));
+  }
   // a line with a day: like a thank-you page, straight to the calendar buttons (it says "You're in" itself)
   if (signRow.date) openCal(signRow, true);
   else {
@@ -856,12 +897,13 @@ $("#csvBtn").onclick = () => {
   };
   const asks = v.sheet.asks || [];
   const dated = v.sheet.rows.some((r) => r.date || r.start);
-  const lines = [[t("Line"), t("Name"), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
+  const waits = v.entries.some((x) => x.wait);
+  const lines = [[t("Line"), t("Name"), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...(waits ? [t("Waiting list")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
   for (const r of v.sheet.rows) {
     if (r.heading) continue;
     for (const e of v.entries.filter((x) => x.row === r.id)) {
       const slot = dated ? [r.date || "", r.start ? r.start + (r.end ? "-" + r.end : "") : ""] : [];
-      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...answersOf(e, asks)].map(cell).join(","));
+      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...(waits ? [e.wait || ""] : []), ...answersOf(e, asks)].map(cell).join(","));
     }
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });

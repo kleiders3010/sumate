@@ -101,6 +101,9 @@ export function cleanSheet(s) {
     ...(closes ? { closes } : {}),
     ...(LOCKS.includes(s.lock) ? { lock: s.lock } : {}), // minutes before each line with a day starts
     final: !!s.final, // once sign-ups are shut, people can't remove themselves either (the organizer still can)
+    // a waiting list for full lines (like SignUpGenius' waitlists): who signs up after a line is full waits in order,
+    // and when someone leaves, the first one waiting is in by itself (nobody has to do anything)
+    wait: !!s.wait,
   };
 }
 
@@ -311,6 +314,7 @@ export class Sheet {
     const owner = this.isOwner(req);
     const mine = new Set((req.headers.get("X-Sign-Tokens") || "").split(",").filter(Boolean));
     const d = this.d;
+    const waits = waitingOf(d);
     return {
       id: d.id,
       owner,
@@ -322,7 +326,8 @@ export class Sheet {
         const show = owner || isMine || d.sheet.showNames;
         // the answers to the organizer's questions: only the organizer and the person who gave them see them
         const ans = owner || isMine ? cleanAnswers(e.ans, d.sheet.asks) : undefined;
-        return { id: e.id, row: e.row, name: show ? e.name : "", note: show ? e.note : "", mine: isMine, at: owner ? e.at : undefined, ans };
+        return { id: e.id, row: e.row, name: show ? e.name : "", note: show ? e.note : "", mine: isMine, at: owner ? e.at : undefined, ans,
+          ...(waits.has(e.id) ? { wait: waits.get(e.id) } : {}) };
       }),
     };
   }
@@ -401,7 +406,7 @@ export class Sheet {
       const owner = this.isOwner(req);
       const why = shut(d.sheet, row);
       if (why && !owner) return json({ error: why }, 409);
-      if (row.need && d.entries.filter((e) => e.row === row.id).length >= row.need) return json({ error: "full" }, 409);
+      if (row.need && !d.sheet.wait && d.entries.filter((e) => e.row === row.id).length >= row.need) return json({ error: "full" }, 409);
       if (d.entries.length >= MAX_ENTRIES) return json({ error: "full" }, 409);
       const asks = d.sheet.asks || [];
       const ans = cleanAnswers(b?.ans, asks);
@@ -431,6 +436,23 @@ export class Sheet {
 
     return json({ error: "not found" }, 404);
   }
+}
+
+/** Who is waiting, and where in line (1 = next): on a line with a number, everyone after the first that many, in the
+ * order they signed up. Worked out from the sign-ups each time, so leaving, a bigger number, or the two servers' copies
+ * coming together all move people in by themselves, the same way on both servers. */
+export function waitingOf(d) {
+  const out = new Map();
+  const byRow = new Map();
+  for (const e of [...d.entries].sort((x, y) => (x.at || 0) - (y.at || 0) || (x.id < y.id ? -1 : 1))) {
+    if (!byRow.has(e.row)) byRow.set(e.row, []);
+    byRow.get(e.row).push(e);
+  }
+  for (const r of d.sheet.rows) {
+    if (r.heading || !r.need) continue;
+    (byRow.get(r.id) || []).slice(r.need).forEach((e, i) => out.set(e.id, i + 1));
+  }
+  return out;
 }
 
 function withToken(req, token) {

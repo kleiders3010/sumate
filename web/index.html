@@ -90,6 +90,7 @@
     <div class="card switches">
       <label class="switch"><input type="checkbox" id="showNames" checked><span>Everyone can see who signed up</span></label>
       <label class="switch"><input type="checkbox" id="openSw" checked><span>Open for sign-ups</span></label>
+      <label class="switch"><input type="checkbox" id="waitSw"><span>Waiting list when a line is full</span></label>
       <button id="timingBtn" type="button" class="btn link left">⏱ Open and close at set times</button>
       <div id="timing" class="timing" hidden>
         <div class="genrow">
@@ -164,6 +165,7 @@
 <div id="signBox" class="sheetbox" hidden>
   <form id="signForm" class="box">
     <b id="signRow" class="boxtitle"></b>
+    <p id="signWait" class="small hint" hidden>The line is full. You go on the waiting list, and if a spot opens you're in by yourself, in order.</p>
     <label for="signName" class="lbl">Your name</label>
     <input id="signName" maxlength="60" autocomplete="name" required>
     <label for="signNote" class="lbl">Note (optional)</label>

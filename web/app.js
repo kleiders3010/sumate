@@ -160,12 +160,13 @@ function route() {
   const p = here();
   // an organizer link carries its key after #k= : keep it on this device, then hide it from the address bar
   const hk = location.hash.match(/^#k=([a-z0-9]{24})$/);
-  const m = p.match(/^\/s\/([a-z0-9]{10})(\/edit)?$/);
+  const m = p.match(/^\/s\/([a-z0-9]{10})(\/edit|\/copy)?$/);
   if (m && hk) {
     rememberSheet(m[1], { key: hk[1] });
     history.replaceState(null, "", location.pathname + location.search);
   }
   if (p === "/new") return openEditor(null);
+  if (m && m[2] === "/copy") return openEditor(null, m[1]);
   if (m && m[2]) return openEditor(m[1]);
   if (m) return openSheet(m[1]);
   return openHome();
@@ -387,7 +388,27 @@ $("#addAsk").onclick = () => {
 // the answers of one sign-up, in the order of the questions
 const answersOf = (e, asks) => (asks || []).map((q) => e.ans?.[q.id] || "");
 
-async function openEditor(id) {
+// a copy (like SignUpGenius' "duplicate"): same lines, questions and settings, nobody signed up yet; the days can all
+// move by a week or so at once
+const addDays = (ymd, n) => {
+  const d = new Date(ymd + "T12:00");
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+function shiftDays() {
+  const n = Number($("#shiftSel").value);
+  for (const inp of $("#rows").querySelectorAll("input[name=date]")) {
+    if (inp.dataset.orig === undefined) inp.dataset.orig = inp.value;
+    if (inp.dataset.orig) inp.value = n ? addDays(inp.dataset.orig, n) : inp.dataset.orig;
+  }
+  for (const inp of [$("#opensAt"), $("#closesAt")]) {
+    if (inp.dataset.orig === undefined) inp.dataset.orig = inp.value;
+    if (inp.dataset.orig) inp.value = addDays(inp.dataset.orig.slice(0, 10), n) + inp.dataset.orig.slice(10);
+  }
+}
+$("#shiftSel").onchange = shiftDays;
+
+async function openEditor(id, from) {
   editId = id;
   showMsg("#editMsg", "");
   $("#rows").replaceChildren();
@@ -397,6 +418,13 @@ async function openEditor(id) {
   $("#delSheet").hidden = !id;
   $("#editHead").textContent = id ? t("Edit sheet") : t("New sheet");
   let s = { title: "", details: "", showNames: true, open: true, rows: [{ need: 1 }, { need: 1 }, { need: 1 }] };
+  if (from) {
+    const v = current?.id === from && !current.stale ? current : await api("/api/sheets/" + from, {}, from);
+    if (v.error) return go("/s/" + from, true);
+    const strip = ({ id: _, ...x }) => x; // new lines and questions: the copy has its own
+    s = { ...v.sheet, title: t("{title} (copy)", { title: v.sheet.title }).slice(0, 120), rows: v.sheet.rows.map(strip), asks: (v.sheet.asks || []).map(strip) };
+    $("#editHead").textContent = t("Copy of the sheet");
+  }
   if (id) {
     if (!keyFor(id)) return go("/s/" + id, true);
     const v = await api("/api/sheets/" + id, {}, id);
@@ -417,6 +445,9 @@ async function openEditor(id) {
   for (const r of s.rows) $("#rows").append(rowEl(r));
   for (const q of s.asks || []) $("#asks").append(askEl(q));
   $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
+  for (const inp of [$("#opensAt"), $("#closesAt")]) delete inp.dataset.orig;
+  $("#shiftSel").value = "0";
+  $("#shiftWrap").hidden = !from || !s.rows.some((r) => r.date);
   show("edit");
   if (!id) $("#title").focus();
 }
@@ -705,7 +736,7 @@ $("#calClose").onclick = () => { $("#calBox").hidden = true; };
 // ---------- share ----------
 const sheetUrl = (id) => location.origin + BASE + "s/" + id;
 function openShare(firstTime = false) {
-  const id = current?.id || here().split("/")[2];
+  const id = here().split("/")[2] || current?.id; // the page shown: right after saving a new sheet, current is still the last one
   const url = sheetUrl(id);
   $("#shareLink").value = url;
   const key = keyFor(id);
@@ -798,6 +829,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeBoxes
 
 $("#sheetBack").onclick = () => go("/");
 $("#editBtn").onclick = () => go("/s/" + current.id + "/edit");
+$("#copyBtn").onclick = () => go("/s/" + current.id + "/copy");
 $("#goneHome").onclick = () => go("/new");
 
 // ---------- CSV ----------

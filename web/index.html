@@ -44,6 +44,15 @@
       <p class="small hint">One line per thing or time slot, and how many people it needs.</p>
     </div>
     <ul id="rows" class="erows"></ul>
+    <label id="shiftWrap" class="shift" hidden><span>Move every day</span>
+      <select id="shiftSel">
+        <option value="0">Keep the days</option>
+        <option value="1">1 day later</option>
+        <option value="7">1 week later</option>
+        <option value="14">2 weeks later</option>
+        <option value="28">4 weeks later</option>
+      </select>
+    </label>
     <div class="addline">
       <button id="addRow" class="btn ghost">+ Add a line</button>
       <button id="addHead" class="btn link">+ Add a heading</button>
@@ -134,6 +143,7 @@
     <div id="srows" class="srows"></div>
     <div id="ownerTools" class="tools" hidden>
       <button id="csvBtn" class="btn ghost">Download (CSV)</button>
+      <button id="copyBtn" class="btn ghost">Make a copy</button>
     </div>
     <p id="sheetMsg" class="msg" hidden></p>
     <p class="small foot"><a href="#" class="fbOpen">Report a problem or idea</a></p>

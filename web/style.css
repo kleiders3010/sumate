@@ -119,6 +119,9 @@ a.btn { text-align: center; text-decoration: none; }
 .person .x { width: 26px; height: 26px; border-radius: 50%; color: var(--muted); font-size: 17px; line-height: 1; }
 .person .x:hover { background: rgba(0, 0, 0, .08); }
 .join { align-self: flex-start; padding: 8px 18px; }
+.shift { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shift span { flex-basis: 100%; }
+.shift select { flex: 1; min-width: 0; }
 .tools { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
 
 /* boxes */

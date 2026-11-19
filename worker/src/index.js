@@ -11,6 +11,8 @@
 // the other server can't be reached the copy is sent again later (the alarm), and a server asked for a sheet it
 // doesn't have asks the other one first.
 
+import { shut, LOCKS } from "../../web/cal.js"; // (on the game host: ./cal.mjs, see kinetic/pack.mjs)
+
 const KEEP_MS = 90 * 24 * 3600 * 1000;
 const MAX_ROWS = 200;
 const MAX_ENTRIES = 3000;
@@ -27,6 +29,7 @@ const ANS_LEN = 200;
 const isDay = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v + "T00:00:00Z"))
   && new Date(v + "T00:00:00Z").toISOString().startsWith(v);
 const isTime = (v) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+const isMoment = (v) => Number.isInteger(v) && v > 1e12 && v < 1e14; // a moment (ms), for opening and closing
 function isZone(v) {
   if (typeof v !== "string" || !/^[A-Za-z0-9_+\-/]{1,64}$/.test(v)) return false;
   try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; }
@@ -83,6 +86,8 @@ export function cleanSheet(s) {
     const opts = [...new Set((Array.isArray(q.opts) ? q.opts : []).map((o) => line(o, 60)).filter(Boolean))].slice(0, MAX_OPTS);
     asks.push({ id, text, req: !!q.req, opts }); // no choices = a short answer
   }
+  const opens = isMoment(s.opens) ? s.opens : 0;
+  const closes = isMoment(s.closes) && s.closes > opens ? s.closes : 0;
   return {
     title,
     details: str(s.details, 2000).replace(/\n{3,}/g, "\n\n"),
@@ -92,6 +97,10 @@ export function cleanSheet(s) {
     asks,
     place: line(s.place, 120),
     tz: isZone(s.tz) ? s.tz : "",
+    ...(opens ? { opens } : {}),
+    ...(closes ? { closes } : {}),
+    ...(LOCKS.includes(s.lock) ? { lock: s.lock } : {}), // minutes before each line with a day starts
+    final: !!s.final, // once sign-ups are shut, people can't remove themselves either (the organizer still can)
   };
 }
 
@@ -307,6 +316,7 @@ export class Sheet {
       owner,
       sheet: d.sheet,
       changed: d.changed,
+      now: Date.now(), // the app opens and closes by the server's clock, not the device's
       entries: d.entries.map((e) => {
         const isMine = mine.has(e.token);
         const show = owner || isMine || d.sheet.showNames;
@@ -389,7 +399,8 @@ export class Sheet {
       const name = line(b?.name, 60);
       if (!row || !name) return json({ error: "bad sign-up" }, 400);
       const owner = this.isOwner(req);
-      if (!d.sheet.open && !owner) return json({ error: "closed" }, 409);
+      const why = shut(d.sheet, row);
+      if (why && !owner) return json({ error: why }, 409);
       if (row.need && d.entries.filter((e) => e.row === row.id).length >= row.need) return json({ error: "full" }, 409);
       if (d.entries.length >= MAX_ENTRIES) return json({ error: "full" }, 409);
       const asks = d.sheet.asks || [];
@@ -409,6 +420,9 @@ export class Sheet {
       if (!e) return json(this.view(req));
       const mine = (req.headers.get("X-Sign-Tokens") || "").split(",").includes(e.token);
       if (!mine && !this.isOwner(req)) return json({ error: "not yours" }, 403);
+      const row = d.sheet.rows.find((r) => r.id === e.row);
+      // pinned: a final sheet keeps its list once sign-ups are shut; the organizer can still remove anyone
+      if (d.sheet.final && !this.isOwner(req) && shut(d.sheet, row)) return json({ error: "final" }, 409);
       d.entries = d.entries.filter((x) => x !== e);
       d.gone = [...d.gone, e.id].slice(-MAX_GONE);
       await this.save();

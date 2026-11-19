@@ -29,6 +29,20 @@ export function wallTime(day, time, tz) {
   return new Date(y, m - 1, d, h, mi).getTime();
 }
 
+// When sign-ups are taken (like SignUpGenius' start/stop dates and "lock before the event"): the sheet may open and
+// close at set moments, and each line with a day may stop taking sign-ups some minutes before it starts. Both servers
+// and the app use this same function.
+export const LOCKS = [0, 60, 180, 360, 720, 1440, 2880, 4320, 10080]; // minutes before a line starts
+
+/** Why sign-ups are not taken now ("closed", "notyet" until it opens, "locked" for a line about to start), or "". */
+export function shut(sheet, row, now = Date.now()) {
+  if (!sheet.open) return "closed";
+  if (sheet.opens && now < sheet.opens) return "notyet";
+  if (sheet.closes && now >= sheet.closes) return "closed";
+  if (row?.date && typeof sheet.lock === "number" && now >= wallTime(row.date, row.start, sheet.tz) - sheet.lock * 60e3) return "locked";
+  return "";
+}
+
 const nextDay = (day) => new Date(Date.parse(day + "T00:00:00Z") + DAY).toISOString().slice(0, 10);
 
 /** A line's event: null without a day; a whole day without a start; an hour without an end; an end before the start

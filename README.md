@@ -11,6 +11,9 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
   so many minutes). The sheet can say where. Someone in another time zone sees "Buenos Aires time" next to the time.
 - After signing up for a line with a day: "Add to my calendar" (Google Calendar, Outlook.com, or an .ics file for
   Apple Calendar, Outlook and the rest), at the right moment wherever you are.
+- The sheet can open and close by itself at set times (people see when), and lines with a day can stop taking
+  sign-ups some time before they start (from "until they start" to a week before). "Once closed, people can't remove
+  themselves" makes the list final; the organizer can still change anything. Both servers enforce it by their own clock.
 - People sign up with their name and an optional note ("vegan lasagna") and can remove themselves later.
 - The organizer can ask up to 5 questions of their own on signing up (a written answer or one of a few choices,
   required or not). Only the organizer (and each person, their own) sees the answers; the download has a column per question.
@@ -43,6 +46,7 @@ servers.
     node cal_test.mjs          # days, times and time zones; the .ics file and calendar links
     python calendar_test.py    # time slots and Add to my calendar, organizer and someone in another zone
     python questions_test.py   # the organizer's own questions
+    python timing_test.py      # opening and closing at set times, lines that stop before they start, a final list
     python e2e.py [base-url]   # whole flow in a headless browser (playwright)
     python failover_test.py    # two sheet servers (kinetic/server.mjs) killed in turn, the device copy
     python mirror_test.py      # the GitHub Pages copy, built and served locally (live: mirror_test.py <pages url> <site>)

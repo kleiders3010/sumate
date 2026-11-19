@@ -1,7 +1,7 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "./i18n.js";
 import { openFeedback } from "./feedback.js";
-import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText } from "./cal.js";
+import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut } from "./cal.js";
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
@@ -130,6 +130,9 @@ const errText = (e) => ({
   offline: t("No connection. Try again."),
   full: t("Someone just took the last spot."),
   closed: t("Sign-ups are closed."),
+  notyet: t("Sign-ups aren't open yet."),
+  locked: t("This one isn't taking sign-ups any more."),
+  final: t("The list is final: ask the organizer if you can't come."),
   answer: t("Answer the questions marked as required."),
   gone: t("This sheet doesn't exist"),
 }[e] || t("Something went wrong. Try again."));
@@ -189,6 +192,17 @@ $("#makeBtn").onclick = () => go("/new");
 // ---------- editor ----------
 let editId = null;
 let editTz = ""; // the sheet's time zone, kept when the organizer edits from somewhere else
+let skew = 0; // the server's clock minus this device's: sign-ups open and close by the server's
+
+// a moment <-> the value of an <input type=datetime-local> (this device's time)
+const pad = (n) => String(n).padStart(2, "0");
+function toLocalInput(ms) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+const fromLocalInput = (v) => (v ? new Date(v).getTime() || undefined : undefined);
+const momentText = (ms) => new Intl.DateTimeFormat(LANG, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(ms);
 const MAX_ROWS = 200;
 
 function needLabel(n) { return n ? String(n) : "∞"; }
@@ -311,6 +325,10 @@ function readEditor() {
     tz: editTz || Intl.DateTimeFormat().resolvedOptions().timeZone, // the organizer's: the times are theirs
     showNames: $("#showNames").checked,
     open: $("#openSw").checked,
+    opens: fromLocalInput($("#opensAt").value),
+    closes: fromLocalInput($("#closesAt").value),
+    lock: $("#lockSel").value === "" ? undefined : Number($("#lockSel").value),
+    final: $("#finalSw").checked,
     rows: [...$("#rows").children].map((li) => ({
       id: li.dataset.id || undefined,
       text: li.querySelector("input").value,
@@ -389,6 +407,11 @@ async function openEditor(id) {
   editTz = s.tz || "";
   $("#showNames").checked = s.showNames;
   $("#openSw").checked = s.open;
+  $("#opensAt").value = toLocalInput(s.opens);
+  $("#closesAt").value = toLocalInput(s.closes);
+  $("#lockSel").value = typeof s.lock === "number" ? String(s.lock) : "";
+  $("#finalSw").checked = !!s.final;
+  $("#timing").hidden = !(s.opens || s.closes || typeof s.lock === "number" || s.final);
   for (const r of s.rows) $("#rows").append(rowEl(r));
   for (const q of s.asks || []) $("#asks").append(askEl(q));
   $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
@@ -396,12 +419,15 @@ async function openEditor(id) {
   if (!id) $("#title").focus();
 }
 
+$("#timingBtn").onclick = () => { $("#timing").hidden = !$("#timing").hidden; };
+
 $("#editBack").onclick = () => (editId ? go("/s/" + editId) : go("/"));
 
 $("#saveBtn").onclick = async () => {
   const s = readEditor();
   if (!s.title.trim()) { showMsg("#editMsg", t("Give the sheet a title.")); $("#title").focus(); return; }
   if (!s.rows.some((r) => !r.heading)) { showMsg("#editMsg", t("Add at least one line.")); return; }
+  if (s.opens && s.closes && s.closes <= s.opens) { showMsg("#editMsg", t("It has to close after it opens.")); $("#closesAt").focus(); return; }
   $("#saveBtn").disabled = true;
   const r = editId
     ? await api("/api/sheets/" + editId, { method: "PUT", body: s }, editId)
@@ -454,6 +480,7 @@ async function openSheet(id, quiet = false) {
     return;
   }
   current = v;
+  if (v.now) skew = v.now - Date.now();
   keepCopy(id, v);
   showMsg("#sheetMsg", "");
   const known = mySheets().find((s) => s.id === id);
@@ -482,7 +509,13 @@ function renderSheet() {
   $("#sPlace").textContent = s.place ? "📍 " + s.place : "";
   $("#editBtn").hidden = !v.owner || !live;
   $("#ownerTools").hidden = !v.owner;
-  $("#closedNote").hidden = s.open;
+  const now = Date.now() + skew;
+  const whole = shut(s, null, now);
+  const note = $("#closedNote");
+  note.textContent = whole === "notyet" ? t("Sign-ups open {when}.", { when: momentText(s.opens) })
+    : whole ? t("Sign-ups are closed.")
+    : s.closes ? t("Sign-ups close {when}.", { when: momentText(s.closes) }) : "";
+  note.hidden = !note.textContent;
   const on = $("#ownerNote");
   on.hidden = !v.owner;
   on.textContent = v.owner
@@ -516,7 +549,8 @@ function renderSheet() {
     if (list.length) {
       const people = el("div", "people");
       for (const e of list) {
-        const canX = live && (e.mine || v.owner);
+        // pinned: a final sheet keeps its list once sign-ups are shut (the organizer can still remove anyone)
+        const canX = live && (v.owner || (e.mine && !(s.final && shut(s, r, now))));
         const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
         chip.append(el("span", "", e.name || t("Taken")));
         if (e.note) chip.append(el("i", "", "· " + e.note));
@@ -541,7 +575,9 @@ function renderSheet() {
       c.onclick = () => openCal(r);
       card.append(c);
     }
-    if (live && !full && (s.open || v.owner)) {
+    const why = shut(s, r, now);
+    if (why === "locked" && !full) card.append(el("span", "shut", t("No more sign-ups for this one")));
+    if (live && !full && (!why || v.owner)) {
       const b = el("button", "btn ghost join", t("Sign up"));
       b.onclick = () => openSign(r);
       card.append(b);
@@ -559,7 +595,7 @@ function renderSheet() {
 async function removeEntry(e) {
   const id = current.id;
   const r = await api(`/api/sheets/${id}/signups/${e.id}`, { method: "DELETE" }, id);
-  if (r.error) return toast(errText(r.error));
+  if (r.error) { if (r.error === "final") openSheet(id, true); return toast(errText(r.error)); }
   current = r;
   keepCopy(id, r);
   renderSheet();
@@ -615,7 +651,7 @@ $("#signForm").onsubmit = async (e) => {
   btn.disabled = false;
   if (r.error) {
     showMsg("#signMsg", errText(r.error));
-    if (r.error === "full" || r.error === "closed") openSheet(id, true);
+    if (["full", "closed", "notyet", "locked"].includes(r.error)) openSheet(id, true);
     return;
   }
   current = r.view;

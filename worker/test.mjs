@@ -1,6 +1,7 @@
 // node test.mjs : what must stay true about sheets the server accepts.
 import assert from "node:assert/strict";
 import { cleanSheet, cleanCopy, mergeCopies, cleanAnswers } from "./src/index.js";
+import { shut } from "../web/cal.js";
 
 // every row gets a real id, also when the editor sends none (regex.test(undefined) once let "undefined" through)
 const s = cleanSheet({ title: " Lunch ", rows: [{ text: "Desserts", heading: true }, { text: "Cake", need: 2 }, { text: "Drinks" }, { text: "  " }] });
@@ -69,4 +70,26 @@ assert.equal(cleanSheet({ title: "x", tz: "Mars/Olympus" }).tz, "");
 assert.equal(cleanSheet({ title: "x", tz: "a;b" }).tz, "");
 // and it travels to the other server with the sheet
 assert.deepEqual(cleanCopy({ id: base.id, key: base.key, sheet: w, entries: [] }, base.id).sheet.rows[0].start, "09:00");
+
+// opening and closing at set moments, and lines that stop taking sign-ups before they start
+const T0 = Date.UTC(2026, 11, 1, 12, 0);
+const oc = cleanSheet({ title: "x", opens: T0, closes: T0 + 3600e3, lock: 1440, final: true, tz: "America/Argentina/Buenos_Aires",
+  rows: [{ text: "a", date: "2026-12-03", start: "09:00" }, { text: "b" }] });
+assert.deepEqual([oc.opens, oc.closes, oc.lock, oc.final], [T0, T0 + 3600e3, 1440, true]);
+const bad = cleanSheet({ title: "x", opens: T0, closes: T0 - 1, lock: 7, final: "" });
+assert.deepEqual([bad.opens, bad.closes, bad.lock, bad.final], [T0, undefined, undefined, false]); // closing before opening: dropped
+assert.equal(cleanSheet({ title: "x", opens: "soon", closes: 12.5 }).opens, undefined);
+assert.equal(cleanSheet({ title: "x", lock: 0 }).lock, 0); // pinned: 0 = until the line starts (none = any time)
+assert.equal(cleanSheet({ title: "x" }).lock, undefined);
+assert.equal(shut(oc, oc.rows[1], T0 - 1), "notyet");
+assert.equal(shut(oc, oc.rows[1], T0), "");
+assert.equal(shut(oc, oc.rows[1], T0 + 3600e3), "closed");
+assert.equal(shut({ ...oc, open: false }, oc.rows[1], T0 + 1), "closed");
+// line a: Dec 3, 9:00 in Buenos Aires = 12:00 UTC; a day before = Dec 2, 12:00 UTC
+const open = { ...oc, opens: undefined, closes: undefined };
+assert.equal(shut(open, oc.rows[0], Date.UTC(2026, 11, 2, 11, 59)), "");
+assert.equal(shut(open, oc.rows[0], Date.UTC(2026, 11, 2, 12, 0)), "locked");
+assert.equal(shut(open, oc.rows[1], Date.UTC(2026, 11, 9)), ""); // a line without a day never locks
+assert.equal(shut({ ...open, lock: undefined }, oc.rows[0], Date.UTC(2026, 11, 9)), "");
+assert.equal(cleanCopy({ id: base.id, key: base.key, sheet: oc, entries: [] }, base.id).sheet.closes, T0 + 3600e3);
 console.log("ok");

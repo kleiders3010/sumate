@@ -9,4 +9,5 @@ dist/
 local.properties
 worker/sumate-shots/
 kinetic/sheet.mjs
+kinetic/cal.mjs
 kinetic/data/

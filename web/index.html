@@ -81,6 +81,28 @@
     <div class="card switches">
       <label class="switch"><input type="checkbox" id="showNames" checked><span>Everyone can see who signed up</span></label>
       <label class="switch"><input type="checkbox" id="openSw" checked><span>Open for sign-ups</span></label>
+      <button id="timingBtn" type="button" class="btn link left">⏱ Open and close at set times</button>
+      <div id="timing" class="timing" hidden>
+        <div class="genrow">
+          <label class="lbl">Opens<input type="datetime-local" id="opensAt"></label>
+          <label class="lbl">Closes<input type="datetime-local" id="closesAt"></label>
+        </div>
+        <label class="lbl">Lines with a day take sign-ups
+          <select id="lockSel">
+            <option value="">Any time</option>
+            <option value="0">Until they start</option>
+            <option value="60">Until 1 hour before</option>
+            <option value="180">Until 3 hours before</option>
+            <option value="360">Until 6 hours before</option>
+            <option value="720">Until 12 hours before</option>
+            <option value="1440">Until 1 day before</option>
+            <option value="2880">Until 2 days before</option>
+            <option value="4320">Until 3 days before</option>
+            <option value="10080">Until 1 week before</option>
+          </select>
+        </label>
+        <label class="switch small"><input type="checkbox" id="finalSw"><span>Once closed, people can't remove themselves</span></label>
+      </div>
     </div>
     <p id="editMsg" class="msg" hidden></p>
     <button id="delSheet" class="btn link danger-text" hidden>Delete this sheet</button>

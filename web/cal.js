@@ -133,6 +133,15 @@ function fold(l) {
   return out.join("\r\n ");
 }
 
+// a reminder before it (like SignUpGenius' automatic reminders, with no email: the person's own calendar rings). A
+// line with a time: that long before it starts; a whole-day line: the day before at 9, or that morning at 8.
+export const REMINDERS = ["0", "h1", "d1", "d2", "w1"];
+export function alarmTrigger(choice, allDay) {
+  const timed = { h1: "-PT1H", d1: "-P1D", d2: "-P2D", w1: "-P7D" };
+  const day = { h1: "PT8H", d1: "-PT15H", d2: "-P1DT15H", w1: "-P6DT15H" };
+  return (allDay ? day : timed)[choice] || "";
+}
+
 /** An .ics file (Apple Calendar, Outlook, and any other calendar) with one event. */
 export function icsText(ev, now = Date.now()) {
   const s = ev.slot;
@@ -148,6 +157,7 @@ export function icsText(ev, now = Date.now()) {
     ...(ev.place ? ["LOCATION:" + esc(ev.place)] : []),
     ...(ev.details ? ["DESCRIPTION:" + esc(ev.details)] : []),
     ...(ev.url ? ["URL:" + ev.url] : []),
+    ...(ev.alarm ? ["BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:" + esc(ev.title), "TRIGGER:" + ev.alarm, "END:VALARM"] : []),
     "END:VEVENT", "END:VCALENDAR",
   ];
   return lines.map(fold).join("\r\n") + "\r\n";

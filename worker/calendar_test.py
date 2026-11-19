@@ -87,9 +87,19 @@ with sync_playwright() as p:
     ics = open(dl.value.path(), encoding="utf-8", newline="").read()
     check("DTSTART:20261205T130000Z\r\nDTEND:20261205T132000Z" in ics and "LOCATION:Costanera Sur" in ics and dl.value.suggested_filename.endswith(".ics"),
           "the .ics file has the right moment and place")
+    check("TRIGGER:-P1D\r\n" in ics, "with a reminder a day before, unless she picks otherwise")  # pinned: default reminder 1 day before
+    ana.select_option("#calRemind", "h1")
+    with ana.expect_download() as dl:
+        ana.click("#calIcs")
+    ics = open(dl.value.path(), encoding="utf-8", newline="").read()
+    check("TRIGGER:-PT1H\r\n" in ics, "she can pick an hour before")
+    check(ana.evaluate("document.documentElement.scrollWidth <= innerWidth"), "the calendar box still fits a small phone")
     ana.click("#calClose")
     check(ana.locator("#srows .cal").count() == 1 and ana.locator("#srows .srow").nth(1).locator(".cal").count() == 1,
           "later: Add to my calendar on her own line only")
+    ana.locator("#srows .srow").nth(1).locator(".cal").click()
+    check(ana.input_value("#calRemind") == "h1", "her reminder choice is remembered")
+    ana.click("#calClose")
 
     # the organizer's list
     o.reload()

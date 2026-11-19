@@ -1,6 +1,6 @@
 // The calendar side of a line's day and time (web/cal.js): the right moment in any zone, and files calendars accept.
 import assert from "node:assert/strict";
-import { wallTime, slotOf, makeSlots, icsText, googleLink, whenText } from "../web/cal.js";
+import { wallTime, slotOf, makeSlots, icsText, googleLink, whenText, alarmTrigger, REMINDERS } from "../web/cal.js";
 
 // 9:00 in Buenos Aires is 12:00 UTC; in Madrid in July 7:00 UTC, in November 8:00 UTC
 assert.equal(wallTime("2026-11-22", "09:00", "America/Argentina/Buenos_Aires"), Date.UTC(2026, 10, 22, 12, 0));
@@ -28,6 +28,13 @@ for (const l of ics.split("\r\n")) assert.ok(new TextEncoder().encode(l).length 
 assert.ok(ics.endsWith("END:VCALENDAR\r\n") && !/[^\r]\n/.test(ics));
 assert.ok(icsText({ ...ev, slot: slotOf({ date: "2026-11-30" }, tz) }).includes("DTSTART;VALUE=DATE:20261130\r\nDTEND;VALUE=DATE:20261201"));
 assert.ok(googleLink(ev).includes("dates=20261122T120000Z%2F20261122T130000Z"));
+// a reminder in the file: the calendar rings that long before (a whole-day line: the day before at 9, or that morning)
+const rem = icsText({ ...ev, alarm: alarmTrigger("d1", false) });
+assert.ok(rem.includes("BEGIN:VALARM\r\nACTION:DISPLAY\r\n") && rem.includes("TRIGGER:-P1D\r\nEND:VALARM\r\nEND:VEVENT"));
+assert.equal(alarmTrigger("d1", true), "-PT15H");
+assert.equal(alarmTrigger("h1", true), "PT8H");
+assert.ok(!icsText({ ...ev, alarm: alarmTrigger("0", false) }).includes("VALARM"));
+assert.ok(REMINDERS.every((c) => c === "0" || (alarmTrigger(c, false) && alarmTrigger(c, true))));
 // shown as the organizer wrote it
 assert.equal(whenText({ date: "2026-11-22", start: "09:00", end: "11:30" }, "en-US", "", Date.UTC(2026, 0, 1)).text, "Sun, Nov 22 · 9:00 AM – 11:30 AM");
 console.log("ok");

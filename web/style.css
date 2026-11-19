@@ -122,6 +122,7 @@ a.btn { text-align: center; text-decoration: none; }
 .shift { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .shift span { flex-basis: 100%; }
 .shift select { flex: 1; min-width: 0; }
+.remind span { flex-basis: auto; }
 .tools { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
 
 /* boxes */

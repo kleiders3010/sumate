@@ -9,7 +9,7 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
   or kind.
 - A line can have a day and a start and end time, and "+ Add time slots" makes a run of them at once (from, to, every
   so many minutes). The sheet can say where. Someone in another time zone sees "Buenos Aires time" next to the time.
-- After signing up for a line with a day: "Add to my calendar" (Google Calendar, Outlook.com, or an .ics file for
+- After signing up for a line with a day: "Add to my calendar" (Google Calendar, Outlook.com, or an .ics file with a reminder you pick, 1 hour to 1 week before, for
   Apple Calendar, Outlook and the rest), at the right moment wherever you are.
 - The sheet can open and close by itself at set times (people see when), and lines with a day can stop taking
   sign-ups some time before they start (from "until they start" to a week before). "Once closed, people can't remove

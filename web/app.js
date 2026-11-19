@@ -1,7 +1,7 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "./i18n.js";
 import { openFeedback } from "./feedback.js";
-import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut } from "./cal.js";
+import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut, alarmTrigger, REMINDERS } from "./cal.js";
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
@@ -719,12 +719,20 @@ function openCal(r, justIn = false) {
   $("#calWhat").textContent = r.text;
   const w = whenText(r, LANG, current.sheet.tz);
   $("#calWhen").textContent = w.text + (w.zone ? " · " + t("{place} time", { place: w.zone }) : "");
+  // the reminder goes in the .ics file; a whole-day line has no "1 hour before", it gets "that morning"
+  const allDay = ev.slot.allDay;
+  const words = { "0": "No reminder", h1: allDay ? "That morning" : "1 hour before", d1: "1 day before", d2: "2 days before", w1: "1 week before" };
+  for (const o of $("#calRemind").options) o.textContent = t(words[o.value]);
+  const saved = localStorage.getItem("sumate.remind");
+  $("#calRemind").value = REMINDERS.includes(saved) ? saved : "d1";
   $("#calGoogle").href = googleLink(ev);
   $("#calOutlook").href = outlookLink(ev);
   $("#calBox").hidden = false;
 }
+$("#calRemind").onchange = () => localStorage.setItem("sumate.remind", $("#calRemind").value);
 $("#calIcs").onclick = () => {
   const ev = calEvent(calRow);
+  ev.alarm = alarmTrigger($("#calRemind").value, ev.slot.allDay);
   const a = el("a");
   a.href = URL.createObjectURL(new Blob([icsText(ev)], { type: "text/calendar;charset=utf-8" }));
   a.download = (calRow.text.replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "sumate") + ".ics";

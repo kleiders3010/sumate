@@ -26,7 +26,7 @@ def check(ok, what):
 
 def call(method, path, body=None, headers=None):
     req = urllib.request.Request(SITE + path, method=method, data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Content-Type": "application/json", **(headers or {})})
+                                 headers={"Content-Type": "application/json", "User-Agent": "sumate-timing-test", **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return r.status, json.loads(r.read() or b"{}")

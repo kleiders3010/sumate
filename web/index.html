@@ -38,7 +38,7 @@
   <div class="col">
     <input id="title" class="title-input" maxlength="120" placeholder="Title, e.g. Saturday lunch at grandma's">
     <textarea id="details" rows="3" maxlength="2000" placeholder="When, where, anything people should know (optional)"></textarea>
-    <input id="place" maxlength="120" placeholder="Where (optional), e.g. Community hall, 5 Main St">
+    <input id="place" maxlength="120" placeholder="Where (optional)">
     <div>
       <h2 class="sub">What you need</h2>
       <p class="small hint">One line per thing or time slot, and how many people it needs.</p>
@@ -163,7 +163,6 @@
 <!-- Sign-up box (over the sheet) -->
 <div id="signBox" class="sheetbox" hidden>
   <form id="signForm" class="box">
-    <p class="small">Sign up for</p>
     <b id="signRow" class="boxtitle"></b>
     <label for="signName" class="lbl">Your name</label>
     <input id="signName" maxlength="60" autocomplete="name" required>
@@ -218,7 +217,7 @@
       <p class="small">Paste it into your page's HTML.</p>
     </div>
     <div id="ownerLinkWrap" class="ownerlink" hidden>
-      <p class="small"><b>Your organizer link</b>: only with it can you edit this sheet. Keep it; don't share it.</p>
+      <p class="small"><b>Your organizer link</b>: keep it private. It's the only way to edit.</p>
       <div class="linkline"><input id="ownerLink" readonly><button id="copyOwner" class="btn ghost">Copy</button></div>
     </div>
     <button id="shareClose" class="btn link">Close</button>

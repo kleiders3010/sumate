@@ -253,7 +253,7 @@ function rowEl(r) {
     clockBtn.title = t("Day and time");
     clockBtn.setAttribute("aria-label", clockBtn.title);
     clockBtn.onclick = () => { when.hidden = !when.hidden; if (!when.hidden) day.focus(); };
-    li.when = when;
+    li.whenBox = when; // not li.when: Chrome elements have a built-in when() (Observables)
     li.clockBtn = clockBtn;
     li.need = r.need ?? 1;
     const box = el("div", "need");
@@ -276,7 +276,7 @@ function rowEl(r) {
   x.title = t("Remove");
   x.onclick = () => li.remove();
   li.append(x);
-  if (li.when) li.append(li.when);
+  if (li.whenBox) li.append(li.whenBox);
   return li;
 }
 
@@ -553,7 +553,7 @@ function renderSheet() {
   const on = $("#ownerNote");
   on.hidden = !v.owner;
   on.textContent = v.owner
-    ? (s.showNames ? t("You are the organizer: you can edit, remove anyone, and download the list.")
+    ? (s.showNames ? t("You can remove anyone and download the list.")
       : t("You are the organizer. Only you see the names; others see how many signed up."))
     : "";
 
@@ -570,7 +570,7 @@ function renderSheet() {
     const list = byRow.get(r.id) || [];
     if (r.need) { need += r.need; have += Math.min(list.length, r.need); }
     const full = r.need && list.length >= r.need;
-    const card = el("div", "srow" + (full ? " full" : ""));
+    const card = el("div", "srow" + (full ? " full" : "") + (r.id === justJoined ? " just" : ""));
     const top = el("div", "top");
     top.append(el("span", "what", r.text));
     top.append(el("span", "left",
@@ -639,6 +639,7 @@ async function removeEntry(e) {
 // ---------- sign-up box ----------
 const signId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
 let signRow = null;
+let justJoined = null; // the line this device just signed up for: shown lit for a moment
 function openSign(r) {
   signRow = r;
   $("#signRow").textContent = r.text;
@@ -695,7 +696,12 @@ $("#signForm").onsubmit = async (e) => {
   renderSheet();
   // a line with a day: like a thank-you page, straight to the calendar buttons (it says "You're in" itself)
   if (signRow.date) openCal(signRow, true);
-  else toast(t("You're in: {what}", { what: signRow.text }));
+  else {
+    justJoined = signRow.id;
+    renderSheet();
+    $(".srow.just")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setTimeout(() => { justJoined = null; $(".srow.just")?.classList.remove("just"); }, 2500);
+  }
 };
 
 // ---------- add to my calendar ----------
@@ -760,7 +766,6 @@ function openShare(firstTime = false) {
     q.innerHTML = code.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
   }
   $("#shareBox").hidden = false;
-  if (firstTime) toast(t("Saved. Now share it."));
 }
 $("#shareBtn").onclick = () => openShare();
 $("#copyLink").onclick = () => copy($("#shareLink").value);

@@ -40,6 +40,9 @@ with sync_playwright() as p:
     o.click("#addRow")
     o.keyboard.type("Set the table")
     shot(o, "02-editor")
+    # an element property named like a browser method once put "function when() { [native code] }" on screen
+    if "native code" in o.inner_text("body"):
+        errors.append("org: the editor shows code text ('native code')")
     o.click("#saveBtn")
     o.wait_for_selector("#shareBox:not([hidden])")
     shot(o, "03-share")

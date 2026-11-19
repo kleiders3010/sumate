@@ -1,6 +1,7 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "./i18n.js";
 import { openFeedback } from "./feedback.js";
+import { watchDirect } from "./direct.js";
 import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut, alarmTrigger, REMINDERS } from "./cal.js";
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
@@ -99,6 +100,8 @@ const SERVERS = [
   RP.get("server") || (location.hostname.endsWith(".github.io") ? "https://signup.jurisgames.com" : ""),
   RP.get("server2") || (OURS && !RP.get("server") ? "https://games.jurisgames.com/sumate" : null),
 ].filter((s) => s !== null);
+// Cloudflare down: the game host straight (direct.js)
+if (SERVERS[1]) watchDirect(SERVERS[1], (url) => { SERVERS[1] = url; });
 let at = 0;
 try { at = Math.min(Number(sessionStorage.getItem("sumate.server")) || 0, SERVERS.length - 1); } catch {}
 

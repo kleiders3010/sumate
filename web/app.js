@@ -1,6 +1,7 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "./i18n.js";
 import { openFeedback } from "./feedback.js";
+import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText } from "./cal.js";
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
@@ -187,6 +188,8 @@ $("#makeBtn").onclick = () => go("/new");
 
 // ---------- editor ----------
 let editId = null;
+let editTz = ""; // the sheet's time zone, kept when the organizer edits from somewhere else
+const MAX_ROWS = 200;
 
 function needLabel(n) { return n ? String(n) : "∞"; }
 
@@ -209,6 +212,32 @@ function rowEl(r) {
   });
   li.append(inp);
   if (!r.heading) {
+    // when: a day and times (like SignUpGenius' dates and times), hidden until asked for or set
+    const when = el("div", "ewhen");
+    const day = el("input");
+    day.type = "date";
+    day.name = "date";
+    day.value = r.date || "";
+    day.setAttribute("aria-label", t("Day"));
+    const from = el("input");
+    from.type = "time";
+    from.name = "start";
+    from.value = r.start || "";
+    from.setAttribute("aria-label", t("From"));
+    const to = el("input");
+    to.type = "time";
+    to.name = "end";
+    to.value = r.end || "";
+    to.setAttribute("aria-label", t("To"));
+    when.append(day, from, el("span", "", "–"), to);
+    when.hidden = !(r.date || r.start);
+    const clockBtn = el("button", "clock", "🕒");
+    clockBtn.type = "button";
+    clockBtn.title = t("Day and time");
+    clockBtn.setAttribute("aria-label", clockBtn.title);
+    clockBtn.onclick = () => { when.hidden = !when.hidden; if (!when.hidden) day.focus(); };
+    li.when = when;
+    li.clockBtn = clockBtn;
     li.need = r.need ?? 1;
     const box = el("div", "need");
     const minus = el("button", "", "−");
@@ -224,13 +253,44 @@ function rowEl(r) {
     box.append(minus, val, plus);
     li.append(box);
   }
+  if (li.clockBtn) li.append(li.clockBtn);
   const x = el("button", "x", "×");
   x.type = "button";
   x.title = t("Remove");
   x.onclick = () => li.remove();
   li.append(x);
+  if (li.when) li.append(li.when);
   return li;
 }
+
+// time slots in one go (like SignUpGenius' "Add Time Slots"): a day, from, to, every so many minutes
+const genSlots = () => {
+  const from = $("#genFrom").value, to = $("#genTo").value;
+  return from && to ? makeSlots(from, to, +$("#genEvery").value, MAX_ROWS - $("#rows").children.length) : [];
+};
+const sayGen = () => { $("#genSay").textContent = t("{n} slots", { n: genSlots().length }); };
+for (const f of ["#genFrom", "#genTo", "#genEvery"]) $(f).addEventListener("input", sayGen);
+$("#addSlots").onclick = () => {
+  $("#slotGen").hidden = false;
+  if (!$("#genDay").value) {
+    const last = [...$("#rows").querySelectorAll("input[name=date]")].map((i) => i.value).filter(Boolean).pop();
+    $("#genDay").value = last || "";
+  }
+  sayGen();
+  $("#genDay").focus();
+};
+$("#genCancel").onclick = () => { $("#slotGen").hidden = true; };
+$("#genAdd").onclick = () => {
+  const slots = genSlots();
+  if (!slots.length) return $("#genTo").focus();
+  const last = [...$("#rows").children].reverse().find((li) => !li.dataset.heading);
+  // the lines the editor starts with, still empty, make room for the slots
+  for (const li of [...$("#rows").children]) if (!li.querySelector("input.text").value.trim()) li.remove();
+  const what = $("#genWhat").value.trim() || t("Spot");
+  for (const s of slots) $("#rows").append(rowEl({ text: what, need: last?.need || 1, date: $("#genDay").value, ...s }));
+  $("#slotGen").hidden = true;
+  toast(t("Added {n} slots", { n: slots.length }));
+};
 
 function addRow(r, after) {
   const li = rowEl(r);
@@ -247,6 +307,8 @@ function readEditor() {
   return {
     title: $("#title").value,
     details: $("#details").value,
+    place: $("#place").value,
+    tz: editTz || Intl.DateTimeFormat().resolvedOptions().timeZone, // the organizer's: the times are theirs
     showNames: $("#showNames").checked,
     open: $("#openSw").checked,
     rows: [...$("#rows").children].map((li) => ({
@@ -254,6 +316,9 @@ function readEditor() {
       text: li.querySelector("input").value,
       heading: !!li.dataset.heading,
       need: li.need,
+      date: li.querySelector("input[name=date]")?.value || undefined,
+      start: li.querySelector("input[name=start]")?.value || undefined,
+      end: li.querySelector("input[name=end]")?.value || undefined,
     })).filter((r) => r.text.trim()),
     asks: [...$("#asks").children].map((li) => ({
       id: li.dataset.id || undefined,
@@ -307,6 +372,8 @@ async function openEditor(id) {
   showMsg("#editMsg", "");
   $("#rows").replaceChildren();
   $("#asks").replaceChildren();
+  $("#slotGen").hidden = true;
+  editTz = "";
   $("#delSheet").hidden = !id;
   $("#editHead").textContent = id ? t("Edit sheet") : t("New sheet");
   let s = { title: "", details: "", showNames: true, open: true, rows: [{ need: 1 }, { need: 1 }, { need: 1 }] };
@@ -318,6 +385,8 @@ async function openEditor(id) {
   }
   $("#title").value = s.title;
   $("#details").value = s.details;
+  $("#place").value = s.place || "";
+  editTz = s.tz || "";
   $("#showNames").checked = s.showNames;
   $("#openSw").checked = s.open;
   for (const r of s.rows) $("#rows").append(rowEl(r));
@@ -409,6 +478,8 @@ function renderSheet() {
   document.title = s.title + " · Sumate";
   $("#sTitle").textContent = s.title;
   $("#sDetails").textContent = s.details;
+  $("#sPlace").hidden = !s.place;
+  $("#sPlace").textContent = s.place ? "📍 " + s.place : "";
   $("#editBtn").hidden = !v.owner || !live;
   $("#ownerTools").hidden = !v.owner;
   $("#closedNote").hidden = s.open;
@@ -438,6 +509,10 @@ function renderSheet() {
     top.append(el("span", "left",
       full ? t("Full") : r.need ? t("{n} of {m}", { n: list.length, m: r.need }) : list.length ? t("{n} signed up", { n: list.length }) : ""));
     card.append(top);
+    if (r.date || r.start) {
+      const w = whenText(r, LANG, s.tz);
+      card.append(el("span", "when", w.text + (w.zone ? " · " + t("{place} time", { place: w.zone }) : "")));
+    }
     if (list.length) {
       const people = el("div", "people");
       for (const e of list) {
@@ -460,6 +535,11 @@ function renderSheet() {
         people.append(chip);
       }
       card.append(people);
+    }
+    if (r.date && list.some((e) => e.mine)) {
+      const c = el("button", "btn link cal", "📅 " + t("Add to my calendar"));
+      c.onclick = () => openCal(r);
+      card.append(c);
     }
     if (live && !full && (s.open || v.owner)) {
       const b = el("button", "btn ghost join", t("Sign up"));
@@ -543,8 +623,45 @@ $("#signForm").onsubmit = async (e) => {
   rememberSheet(id, { title: current.sheet.title });
   closeBoxes();
   renderSheet();
-  toast(t("You're in: {what}", { what: signRow.text }));
+  // a line with a day: like a thank-you page, straight to the calendar buttons (it says "You're in" itself)
+  if (signRow.date) openCal(signRow, true);
+  else toast(t("You're in: {what}", { what: signRow.text }));
 };
+
+// ---------- add to my calendar ----------
+function calEvent(r) {
+  const s = current.sheet;
+  const url = sheetUrl(current.id);
+  return {
+    uid: current.id + "-" + r.id + "@sumate.jurisgames.com",
+    title: r.text + " · " + s.title,
+    place: s.place,
+    details: [s.details, url].filter(Boolean).join("\n\n"),
+    url,
+    slot: slotOf(r, s.tz),
+  };
+}
+let calRow = null;
+function openCal(r, justIn = false) {
+  calRow = r;
+  const ev = calEvent(r);
+  $("#calHi").textContent = justIn ? t("You're in. Add it to your calendar?") : t("Add to your calendar");
+  $("#calWhat").textContent = r.text;
+  const w = whenText(r, LANG, current.sheet.tz);
+  $("#calWhen").textContent = w.text + (w.zone ? " · " + t("{place} time", { place: w.zone }) : "");
+  $("#calGoogle").href = googleLink(ev);
+  $("#calOutlook").href = outlookLink(ev);
+  $("#calBox").hidden = false;
+}
+$("#calIcs").onclick = () => {
+  const ev = calEvent(calRow);
+  const a = el("a");
+  a.href = URL.createObjectURL(new Blob([icsText(ev)], { type: "text/calendar;charset=utf-8" }));
+  a.download = (calRow.text.replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "sumate") + ".ics";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$("#calClose").onclick = () => { $("#calBox").hidden = true; };
 
 // ---------- share ----------
 const sheetUrl = (id) => location.origin + BASE + "s/" + id;
@@ -579,8 +696,9 @@ $("#shareClose").onclick = closeBoxes;
 function closeBoxes() {
   $("#signBox").hidden = true;
   $("#shareBox").hidden = true;
+  $("#calBox").hidden = true;
 }
-for (const box of [$("#signBox"), $("#shareBox")]) {
+for (const box of [$("#signBox"), $("#shareBox"), $("#calBox")]) {
   box.addEventListener("click", (e) => { if (e.target === box) closeBoxes(); });
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeBoxes(); });
@@ -599,11 +717,13 @@ $("#csvBtn").onclick = () => {
     return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const asks = v.sheet.asks || [];
-  const lines = [[t("Line"), t("Name"), t("Note"), t("When"), ...asks.map((q) => q.text)].map(cell).join(",")];
+  const dated = v.sheet.rows.some((r) => r.date || r.start);
+  const lines = [[t("Line"), t("Name"), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
   for (const r of v.sheet.rows) {
     if (r.heading) continue;
     for (const e of v.entries.filter((x) => x.row === r.id)) {
-      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...answersOf(e, asks)].map(cell).join(","));
+      const slot = dated ? [r.date || "", r.start ? r.start + (r.end ? "-" + r.end : "") : ""] : [];
+      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...answersOf(e, asks)].map(cell).join(","));
     }
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });

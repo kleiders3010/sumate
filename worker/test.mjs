@@ -57,4 +57,16 @@ assert.deepEqual(cleanAnswers({ [size.id]: "M" }, qs.asks), { [size.id]: "M" });
 // the answers travel to the other server with the sign-up
 const withAns = cleanCopy({ id: base.id, key: base.key, sheet: qs, entries: [{ ...e("aaaaaaa9", qs.rows[0].id, 1), ans: { [size.id]: "S", bad: "x" } }] }, base.id);
 assert.deepEqual(withAns.entries[0].ans, { [size.id]: "S" });
+// a line may say when: a real day, times as HH:MM, an end only with a start; the zone must be a real one
+const w = cleanSheet({ title: "x", place: " Parque  Centenario ", tz: "America/Argentina/Buenos_Aires", rows: [
+  { text: "a", date: "2026-11-22", start: "09:00", end: "11:30" }, { text: "b", date: "2026-02-30", start: "25:00", end: "10:00" },
+  { text: "c", end: "10:00" }, { text: "d", start: "22:00", end: "01:00" }, { text: "h", heading: true, date: "2026-11-22" }] });
+assert.deepEqual(w.rows.map(({ date, start, end }) => [date, start, end]),
+  [["2026-11-22", "09:00", "11:30"], [undefined, undefined, undefined], [undefined, undefined, undefined], [undefined, "22:00", "01:00"], [undefined, undefined, undefined]]);
+assert.equal(w.place, "Parque Centenario");
+assert.equal(w.tz, "America/Argentina/Buenos_Aires");
+assert.equal(cleanSheet({ title: "x", tz: "Mars/Olympus" }).tz, "");
+assert.equal(cleanSheet({ title: "x", tz: "a;b" }).tz, "");
+// and it travels to the other server with the sheet
+assert.deepEqual(cleanCopy({ id: base.id, key: base.key, sheet: w, entries: [] }, base.id).sheet.rows[0].start, "09:00");
 console.log("ok");

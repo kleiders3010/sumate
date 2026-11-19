@@ -22,6 +22,15 @@ const MAX_SYNC = 1024 * 1024; // a whole sheet with its sign-ups
 const MAX_ASKS = 5;
 const MAX_OPTS = 8;
 const ANS_LEN = 200;
+// a line may say when (like SignUpGenius' dates and times): a day, a start and an end time, as the organizer wrote them,
+// in the organizer's time zone (kept with the sheet so a calendar gets the right moment anywhere)
+const isDay = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v + "T00:00:00Z"))
+  && new Date(v + "T00:00:00Z").toISOString().startsWith(v);
+const isTime = (v) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+function isZone(v) {
+  if (typeof v !== "string" || !/^[A-Za-z0-9_+\-/]{1,64}$/.test(v)) return false;
+  try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; }
+}
 // the other server is down: try again after these (at most 5 minutes apart, so the copies agree soon after it is back)
 const RETRY_MS = [15e3, 30e3, 60e3, 2 * 60e3, 5 * 60e3];
 
@@ -57,7 +66,11 @@ export function cleanSheet(s) {
     seen.add(id);
     if (r?.heading) { rows.push({ id, text, heading: true }); continue; }
     const need = Math.floor(Number(r?.need));
-    rows.push({ id, text, need: need >= 1 && need <= 999 ? need : 0 }); // 0 = any number
+    const row = { id, text, need: need >= 1 && need <= 999 ? need : 0 }; // 0 = any number
+    if (isDay(r.date)) row.date = r.date;
+    if (isTime(r.start)) row.start = r.start;
+    if (row.start && isTime(r.end) && r.end !== r.start) row.end = r.end; // earlier than the start = the next day
+    rows.push(row);
   }
   const asks = [];
   const askIds = new Set();
@@ -77,6 +90,8 @@ export function cleanSheet(s) {
     showNames: s.showNames !== false,
     open: s.open !== false,
     asks,
+    place: line(s.place, 120),
+    tz: isZone(s.tz) ? s.tz : "",
   };
 }
 

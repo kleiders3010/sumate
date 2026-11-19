@@ -68,6 +68,21 @@ a { color: var(--accent); }
 .eask textarea { font-size: 15px; }
 .switch.small { font-size: 15px; gap: 10px; }
 .signAsks { display: contents; }
+.erow { flex-wrap: wrap; }
+.erow .clock { width: 38px; height: 38px; border-radius: 50%; font-size: 17px; flex: none; }
+.erow .clock:hover { background: #eeeae1; }
+.ewhen { flex-basis: 100%; display: flex; gap: 4px; align-items: center; min-width: 0; }
+.ewhen input { min-width: 0; width: 0; flex: 1 1 0; padding: 8px 4px; font-size: 14px; }
+.ewhen input[type=date] { flex: 1.4 1 0; }
+.slotgen { display: flex; flex-direction: column; gap: 10px; }
+.genrow { display: flex; gap: 8px; flex-wrap: wrap; }
+.genrow .lbl { display: flex; flex-direction: column; gap: 4px; flex: 1 1 90px; min-width: 0; }
+.genrow .lbl.grow { flex: 2 1 160px; }
+.genrow input, .genrow select { min-width: 0; width: 100%; }
+.srow .when { font-size: 14px; color: var(--muted); margin-top: -4px; }
+.srow .cal { align-self: flex-start; padding: 2px 0; font-size: 15px; }
+.place { margin: 6px 0 0; color: var(--muted); }
+a.btn { text-align: center; text-decoration: none; }
 .addline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .switches { display: flex; flex-direction: column; gap: 12px; }
 .switch { display: flex; gap: 12px; align-items: center; cursor: pointer; }

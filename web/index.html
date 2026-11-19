@@ -38,6 +38,7 @@
   <div class="col">
     <input id="title" class="title-input" maxlength="120" placeholder="Title, e.g. Saturday lunch at grandma's">
     <textarea id="details" rows="3" maxlength="2000" placeholder="When, where, anything people should know (optional)"></textarea>
+    <input id="place" maxlength="120" placeholder="Where (optional), e.g. Community hall, 5 Main St">
     <div>
       <h2 class="sub">What you need</h2>
       <p class="small hint">One line per thing or time slot, and how many people it needs.</p>
@@ -46,6 +47,28 @@
     <div class="addline">
       <button id="addRow" class="btn ghost">+ Add a line</button>
       <button id="addHead" class="btn link">+ Add a heading</button>
+      <button id="addSlots" class="btn link">+ Add time slots</button>
+    </div>
+    <div id="slotGen" class="card slotgen" hidden>
+      <b>Time slots</b>
+      <div class="genrow">
+        <label class="lbl">Day<input id="genDay" type="date"></label>
+        <label class="lbl">From<input id="genFrom" type="time" value="09:00"></label>
+        <label class="lbl">To<input id="genTo" type="time" value="12:00"></label>
+      </div>
+      <div class="genrow">
+        <label class="lbl">Every<select id="genEvery">
+          <option value="15">15 min</option><option value="20">20 min</option><option value="30" selected>30 min</option>
+          <option value="45">45 min</option><option value="60">1 hour</option><option value="90">1 h 30</option>
+          <option value="120">2 hours</option><option value="180">3 hours</option><option value="240">4 hours</option>
+        </select></label>
+        <label class="lbl grow">For<input id="genWhat" maxlength="160" placeholder="e.g. Volunteer, Appointment"></label>
+      </div>
+      <p id="genSay" class="small"></p>
+      <div class="boxbtns">
+        <button type="button" id="genCancel" class="btn ghost">Cancel</button>
+        <button type="button" id="genAdd" class="btn primary">Add</button>
+      </div>
     </div>
     <div>
       <h2 class="sub">Questions for people who sign up</h2>
@@ -78,6 +101,7 @@
     <div>
       <h1 id="sTitle" class="stitle"></h1>
       <p id="sDetails" class="details"></p>
+      <p id="sPlace" class="place" hidden></p>
     </div>
     <div class="progress">
       <div class="track"><div id="fill" class="fill"></div></div>
@@ -119,6 +143,19 @@
       <button class="btn primary">Add me</button>
     </div>
   </form>
+</div>
+
+<!-- Add to my calendar -->
+<div id="calBox" class="sheetbox" hidden>
+  <div class="box">
+    <p id="calHi" class="small">Add to your calendar</p>
+    <b id="calWhat" class="boxtitle"></b>
+    <p id="calWhen" class="small"></p>
+    <a id="calGoogle" class="btn ghost wide" target="_blank" rel="noopener">Google Calendar</a>
+    <a id="calOutlook" class="btn ghost wide" target="_blank" rel="noopener">Outlook.com</a>
+    <button id="calIcs" class="btn ghost wide">Apple, Outlook, other (.ics file)</button>
+    <button id="calClose" class="btn link">Close</button>
+  </div>
 </div>
 
 <!-- Share box -->

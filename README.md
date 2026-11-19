@@ -7,6 +7,10 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
 
 - One line per thing or time slot, with how many people it needs (or any number). Headings group lines by day
   or kind.
+- A line can have a day and a start and end time, and "+ Add time slots" makes a run of them at once (from, to, every
+  so many minutes). The sheet can say where. Someone in another time zone sees "Buenos Aires time" next to the time.
+- After signing up for a line with a day: "Add to my calendar" (Google Calendar, Outlook.com, or an .ics file for
+  Apple Calendar, Outlook and the rest), at the right moment wherever you are.
 - People sign up with their name and an optional note ("vegan lasagna") and can remove themselves later.
 - The organizer can ask up to 5 questions of their own on signing up (a written answer or one of a few choices,
   required or not). Only the organizer (and each person, their own) sees the answers; the download has a column per question.
@@ -36,6 +40,9 @@ servers.
     cd worker && npx wrangler dev --port 8790
     # open http://127.0.0.1:8790
     node test.mjs              # checks on what the server accepts
+    node cal_test.mjs          # days, times and time zones; the .ics file and calendar links
+    python calendar_test.py    # time slots and Add to my calendar, organizer and someone in another zone
+    python questions_test.py   # the organizer's own questions
     python e2e.py [base-url]   # whole flow in a headless browser (playwright)
     python failover_test.py    # two sheet servers (kinetic/server.mjs) killed in turn, the device copy
     python mirror_test.py      # the GitHub Pages copy, built and served locally (live: mirror_test.py <pages url> <site>)

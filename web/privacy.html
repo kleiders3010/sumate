@@ -29,6 +29,13 @@ at signup.jurisgames.com.</p>
   <li><b>The organizer's questions</b> (if the sheet has any, like a T-shirt size): your answers are kept with your
     sign-up and only the organizer and you see them, never the other people on the sheet. They go with your sign-up:
     removed with it, deleted with the sheet.</li>
+  <li><b>Days and times</b>: if the organizer gives lines a time, the sheet also keeps the organizer's time zone as
+    their device reports it (for example America/Argentina/Buenos_Aires), so the times are right for people elsewhere.
+    Anyone with the link can see it.</li>
+  <li><b>Add to my calendar</b>: the .ics file is made on your device; nothing is sent. The Google Calendar and
+    Outlook.com buttons open that company's page with the line, its time, the place, the sheet's details and its link
+    filled in (never your name or anyone else's); only if you tap them, and from then on that company's privacy
+    rules apply.</li>
   <li>Your device keeps your name, a random code that lets you remove your own sign-ups, the list of sheets
     you made or joined, and the last version it saw of the last 30 sheets you opened (as you saw them), so you can
     still read a sheet when no server can be reached. It is not linked to who you are.</li>
@@ -81,7 +88,13 @@ day.</p>
 <p>Sumate es una app gratis y de código abierto para hacer listas donde la gente se anota. Sin cuentas, sin
 anuncios, sin analíticas; nunca pedimos email ni teléfono, salvo el email opcional para responderte en "Enviar comentarios". Lo que escribís en un campo (un título, un nombre, una nota) se envía tal cual, así que si escribís ahí un email o un teléfono también se envía. El servidor guarda la lista y los nombres y notas que
 cada uno escribe al anotarse; los ve cualquiera con el enlace, salvo que quien organiza elija mostrarlos solo a
-sí mismo. Podés sacarte de una lista cuando quieras; quien organiza puede quitar a cualquiera o borrar la lista,
+sí mismo. Si quien organiza hace preguntas (como el talle de remera), tus respuestas se guardan con tu anotación y
+solo las ven quien organiza y vos; se van con tu anotación y se borran con la lista. Si las líneas tienen horario, la
+lista guarda también la zona horaria de quien organiza tal como la informa su dispositivo (por ej.
+America/Argentina/Buenos_Aires), para que el horario salga bien en otros lugares; la ve cualquiera con el enlace.
+"Agregar a mi calendario": el archivo .ics se arma en tu dispositivo, sin enviar nada; los botones de Google Calendar y
+Outlook.com abren la página de esa empresa con la línea, su horario, el lugar, los detalles y el enlace de la lista
+(nunca tu nombre ni el de nadie), solo si los tocás, y desde ahí rigen las reglas de esa empresa. Podés sacarte de una lista cuando quieras; quien organiza puede quitar a cualquiera o borrar la lista,
 y se borra del servidor en el momento. Para borrar tu nombre: abrí la lista y tocá la × al lado de tu nombre. Para borrar toda la lista: quien organiza toca Editar y después "Borrar esta lista" dos veces. Una lista que nadie cambia en 90 días se borra sola.
 Sumate funciona en Cloudflare Workers y cada lista también se guarda en nuestro propio servidor de juegos (games.jurisgames.com, un servidor alquilado al que se llega a través de Cloudflare), así que las listas siguen andando si uno se cae: cada cambio se copia al otro y la app usa el que responda. Los dos borran todo igual (si uno está caído cuando se borra algo, lo borra apenas vuelve). Hasta que la lista vence se guardan los códigos al azar de las anotaciones quitadas, y de una lista borrada quedan solo sus códigos, para que la copia del otro servidor no las traiga de vuelta; nunca un nombre ni una nota. No hay otras copias de seguridad. Nuestro servidor no guarda registros de quién se conecta; para frenar abusos cuenta, durante un minuto y solo en memoria, cuántas listas y cambios hace cada dirección. Las páginas también están publicadas en GitHub Pages (kleiders3010.github.io/sumate), para que la app abra aunque signup.jurisgames.com no ande; GitHub sirve esa copia y puede guardar registros habituales de visitas, y sus listas son las mismas, en los mismos dos servidores. Tu dispositivo guarda tu nombre, un código al azar para poder sacarte, tus listas y cómo viste por última vez las últimas 30 listas que abriste, para poder leerlas aunque no responda ningún servidor; borrar los datos del sitio (o desinstalar la app) borra todo eso.
 "Enviar comentarios" manda lo que escribís, de qué tipo es (un problema, una idea, otra cosa) y, solo si lo escribís, tu email, a feedback.jurisgames.com, que lo envía por email a hello@jurisgames.com sin guardar nada. Con "Incluir detalles técnicos" (tildado al principio; destildalo para no mandarlos, y "Ver lo que se envía" muestra todo antes de enviarlo) también manda tu navegador y sistema, tamaño de pantalla y de ventana, idioma, tipo de conexión, errores recientes de la página y en qué página estás. Nunca la lista, sus links ni el nombre de nadie. El email queda en nuestra casilla lo necesario para responder y arreglar las cosas. Para frenar abusos, el servidor cuenta los mensajes por red y por día con un código irreversible de la dirección (nunca la dirección), que se borra al día siguiente.

@@ -8,6 +8,8 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
 - One line per thing or time slot, with how many people it needs (or any number). Headings group lines by day
   or kind.
 - People sign up with their name and an optional note ("vegan lasagna") and can remove themselves later.
+- The organizer can ask up to 5 questions of their own on signing up (a written answer or one of a few choices,
+  required or not). Only the organizer (and each person, their own) sees the answers; the download has a column per question.
 - The organizer can edit, remove anyone, close the sheet, show names only to themselves, and download the list
   as a spreadsheet (CSV). Editing works from any device with the organizer link.
 - The page updates by itself, and the server refuses a spot that was just taken.

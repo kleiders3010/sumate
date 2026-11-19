@@ -63,6 +63,11 @@ a { color: var(--accent); }
 .need span { min-width: 30px; text-align: center; font-weight: 700; }
 .erow .x { width: 38px; height: 38px; border-radius: 50%; color: var(--muted); font-size: 20px; flex: none; }
 .erow .x:hover { background: #eeeae1; }
+.easks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.eask { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1.5px solid var(--line); border-radius: 14px; }
+.eask textarea { font-size: 15px; }
+.switch.small { font-size: 15px; gap: 10px; }
+.signAsks { display: contents; }
 .addline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .switches { display: flex; flex-direction: column; gap: 12px; }
 .switch { display: flex; gap: 12px; align-items: center; cursor: pointer; }

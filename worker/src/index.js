@@ -17,6 +17,11 @@ const MAX_ENTRIES = 3000;
 const MAX_GONE = 3000;
 const MAX_BODY = 64 * 1024;
 const MAX_SYNC = 1024 * 1024; // a whole sheet with its sign-ups
+// the organizer's own questions on signing up (like SignUpGenius' custom questions): a short answer or one of a few
+// choices, each required or not; the answers go to the organizer (and the person who gave them), never to everyone
+const MAX_ASKS = 5;
+const MAX_OPTS = 8;
+const ANS_LEN = 200;
 // the other server is down: try again after these (at most 5 minutes apart, so the copies agree soon after it is back)
 const RETRY_MS = [15e3, 30e3, 60e3, 2 * 60e3, 5 * 60e3];
 
@@ -54,13 +59,36 @@ export function cleanSheet(s) {
     const need = Math.floor(Number(r?.need));
     rows.push({ id, text, need: need >= 1 && need <= 999 ? need : 0 }); // 0 = any number
   }
+  const asks = [];
+  const askIds = new Set();
+  for (const q of (Array.isArray(s.asks) ? s.asks : []).slice(0, 4 * MAX_ASKS)) {
+    const text = line(q?.text, 120);
+    if (!text) continue;
+    if (asks.length >= MAX_ASKS) break;
+    const id = isId(q?.id, 6, 12) && !askIds.has(q.id) ? q.id : randomToken(8);
+    askIds.add(id);
+    const opts = [...new Set((Array.isArray(q.opts) ? q.opts : []).map((o) => line(o, 60)).filter(Boolean))].slice(0, MAX_OPTS);
+    asks.push({ id, text, req: !!q.req, opts }); // no choices = a short answer
+  }
   return {
     title,
     details: str(s.details, 2000).replace(/\n{3,}/g, "\n\n"),
     rows,
     showNames: s.showNames !== false,
     open: s.open !== false,
+    asks,
   };
+}
+
+/** A sign-up's answers to the sheet's questions: only questions it has, a choice only from its choices. */
+export function cleanAnswers(a, asks) {
+  const out = {};
+  for (const q of asks || []) {
+    let v = line(a?.[q.id], ANS_LEN);
+    if (q.opts.length && !q.opts.includes(v)) v = "";
+    if (v) out[q.id] = v;
+  }
+  return out;
 }
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -79,7 +107,8 @@ export function cleanCopy(d, id) {
     const name = line(e.name, 60);
     if (!name) continue;
     seen.add(e.id);
-    entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at) });
+    const ans = cleanAnswers(e.ans, sheet.asks);
+    entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at), ...(Object.keys(ans).length ? { ans } : {}) });
   }
   return { id, key: d.key, sheet, sheetAt: num(d.sheetAt), entries, gone, changed: num(d.changed) };
 }
@@ -266,7 +295,9 @@ export class Sheet {
       entries: d.entries.map((e) => {
         const isMine = mine.has(e.token);
         const show = owner || isMine || d.sheet.showNames;
-        return { id: e.id, row: e.row, name: show ? e.name : "", note: show ? e.note : "", mine: isMine, at: owner ? e.at : undefined };
+        // the answers to the organizer's questions: only the organizer and the person who gave them see them
+        const ans = owner || isMine ? cleanAnswers(e.ans, d.sheet.asks) : undefined;
+        return { id: e.id, row: e.row, name: show ? e.name : "", note: show ? e.note : "", mine: isMine, at: owner ? e.at : undefined, ans };
       }),
     };
   }
@@ -346,8 +377,13 @@ export class Sheet {
       if (!d.sheet.open && !owner) return json({ error: "closed" }, 409);
       if (row.need && d.entries.filter((e) => e.row === row.id).length >= row.need) return json({ error: "full" }, 409);
       if (d.entries.length >= MAX_ENTRIES) return json({ error: "full" }, 409);
+      const asks = d.sheet.asks || [];
+      const ans = cleanAnswers(b?.ans, asks);
+      // pinned: a required question must be answered, except when the organizer adds someone
+      if (!owner && asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
       const token = isId(b?.token, 16, 32) ? b.token : randomToken(20);
-      d.entries.push({ id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: Date.now() });
+      d.entries.push({ id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: Date.now(),
+        ...(Object.keys(ans).length ? { ans } : {}) });
       await this.save();
       return json({ token, view: this.view(withToken(req, token)) });
     }

@@ -129,6 +129,7 @@ const errText = (e) => ({
   offline: t("No connection. Try again."),
   full: t("Someone just took the last spot."),
   closed: t("Sign-ups are closed."),
+  answer: t("Answer the questions marked as required."),
   gone: t("This sheet doesn't exist"),
 }[e] || t("Something went wrong. Try again."));
 
@@ -254,13 +255,58 @@ function readEditor() {
       heading: !!li.dataset.heading,
       need: li.need,
     })).filter((r) => r.text.trim()),
+    asks: [...$("#asks").children].map((li) => ({
+      id: li.dataset.id || undefined,
+      text: li.querySelector("input.text").value,
+      opts: li.querySelector("textarea").value.split("\n").map((o) => o.trim()).filter(Boolean),
+      req: li.querySelector("input[type=checkbox]").checked,
+    })).filter((q) => q.text.trim()),
   };
 }
+
+// ---------- the organizer's own questions ----------
+const MAX_ASKS = 5;
+function askEl(q) {
+  const li = el("li", "eask");
+  li.dataset.id = q.id || "";
+  const top = el("div", "erow");
+  const inp = el("input", "text");
+  inp.maxLength = 120;
+  inp.value = q.text || "";
+  inp.placeholder = t("e.g. T-shirt size? or Any allergies?");
+  inp.setAttribute("aria-label", t("Question"));
+  const x = el("button", "x", "×");
+  x.type = "button";
+  x.title = t("Remove");
+  x.onclick = () => { li.remove(); $("#addAsk").hidden = false; };
+  top.append(inp, x);
+  const opts = el("textarea");
+  opts.rows = 2;
+  opts.value = (q.opts || []).join("\n");
+  opts.placeholder = t("Choices, one per line (leave empty for a written answer)");
+  opts.setAttribute("aria-label", t("Choices"));
+  const req = el("label", "switch small");
+  const cb = el("input");
+  cb.type = "checkbox";
+  cb.checked = !!q.req;
+  req.append(cb, el("span", "", t("Required")));
+  li.append(top, opts, req);
+  return li;
+}
+$("#addAsk").onclick = () => {
+  const li = askEl({});
+  $("#asks").append(li);
+  li.querySelector("input").focus();
+  $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
+};
+// the answers of one sign-up, in the order of the questions
+const answersOf = (e, asks) => (asks || []).map((q) => e.ans?.[q.id] || "");
 
 async function openEditor(id) {
   editId = id;
   showMsg("#editMsg", "");
   $("#rows").replaceChildren();
+  $("#asks").replaceChildren();
   $("#delSheet").hidden = !id;
   $("#editHead").textContent = id ? t("Edit sheet") : t("New sheet");
   let s = { title: "", details: "", showNames: true, open: true, rows: [{ need: 1 }, { need: 1 }, { need: 1 }] };
@@ -275,6 +321,8 @@ async function openEditor(id) {
   $("#showNames").checked = s.showNames;
   $("#openSw").checked = s.open;
   for (const r of s.rows) $("#rows").append(rowEl(r));
+  for (const q of s.asks || []) $("#asks").append(askEl(q));
+  $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
   show("edit");
   if (!id) $("#title").focus();
 }
@@ -397,6 +445,11 @@ function renderSheet() {
         const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
         chip.append(el("span", "", e.name || t("Taken")));
         if (e.note) chip.append(el("i", "", "· " + e.note));
+        const said = answersOf(e, s.asks);
+        if (said.some(Boolean)) { // only the organizer and the person themselves get these
+          chip.append(el("i", "ans", "· " + said.filter(Boolean).join(" · ")));
+          chip.title = s.asks.map((q, i) => said[i] && q.text + " " + said[i]).filter(Boolean).join("\n");
+        }
         if (canX) {
           const x = el("button", "x", "×");
           x.title = e.mine ? t("Remove me") : t("Remove {name}", { name: e.name });
@@ -441,6 +494,25 @@ function openSign(r) {
   $("#signRow").textContent = r.text;
   $("#signName").value = safeGet("sumate.name") || "";
   $("#signNote").value = "";
+  const box = $("#signAsks");
+  box.replaceChildren();
+  for (const q of current.sheet.asks || []) {
+    const lbl = el("label", "lbl", q.req ? q.text : t("{q} (optional)", { q: q.text }));
+    lbl.htmlFor = "ask-" + q.id;
+    let f;
+    if (q.opts.length) {
+      f = el("select");
+      f.append(new Option(t("Choose one"), ""));
+      for (const o of q.opts) f.append(new Option(o, o));
+    } else {
+      f = el("input");
+      f.maxLength = 200;
+    }
+    f.id = "ask-" + q.id;
+    f.dataset.ask = q.id;
+    f.required = q.req && !current.owner; // the organizer may add someone without the answers
+    box.append(lbl, f);
+  }
   showMsg("#signMsg", "");
   $("#signBox").hidden = false;
   ($("#signName").value ? $("#signNote") : $("#signName")).focus();
@@ -457,7 +529,8 @@ $("#signForm").onsubmit = async (e) => {
   const r = await api(`/api/sheets/${id}/signups`, {
     method: "POST",
     // its own id: sent again to the other server (no answer from the first), it is still one sign-up
-    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: TOKEN },
+    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: TOKEN,
+      ans: Object.fromEntries([...$("#signAsks").querySelectorAll("[data-ask]")].map((f) => [f.dataset.ask, f.value])) },
   }, id);
   btn.disabled = false;
   if (r.error) {
@@ -525,11 +598,12 @@ $("#csvBtn").onclick = () => {
     if (/^[=+\-@]/.test(s)) s = "'" + s; // keep spreadsheets from running it as a formula
     return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const lines = [[t("Line"), t("Name"), t("Note"), t("When")].map(cell).join(",")];
+  const asks = v.sheet.asks || [];
+  const lines = [[t("Line"), t("Name"), t("Note"), t("When"), ...asks.map((q) => q.text)].map(cell).join(",")];
   for (const r of v.sheet.rows) {
     if (r.heading) continue;
     for (const e of v.entries.filter((x) => x.row === r.id)) {
-      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : ""].map(cell).join(","));
+      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...answersOf(e, asks)].map(cell).join(","));
     }
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });

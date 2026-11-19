@@ -47,6 +47,14 @@
       <button id="addRow" class="btn ghost">+ Add a line</button>
       <button id="addHead" class="btn link">+ Add a heading</button>
     </div>
+    <div>
+      <h2 class="sub">Questions for people who sign up</h2>
+      <p class="small hint">Optional. Only you see the answers.</p>
+    </div>
+    <ul id="asks" class="easks"></ul>
+    <div class="addline">
+      <button id="addAsk" class="btn ghost">+ Add a question</button>
+    </div>
     <div class="card switches">
       <label class="switch"><input type="checkbox" id="showNames" checked><span>Everyone can see who signed up</span></label>
       <label class="switch"><input type="checkbox" id="openSw" checked><span>Open for sign-ups</span></label>
@@ -104,6 +112,7 @@
     <input id="signName" maxlength="60" autocomplete="name" required>
     <label for="signNote" class="lbl">Note (optional)</label>
     <input id="signNote" maxlength="200" placeholder="e.g. vegan lasagna, I'll be 10 min late">
+    <div id="signAsks" class="signAsks"></div>
     <p id="signMsg" class="msg" hidden></p>
     <div class="boxbtns">
       <button type="button" id="signCancel" class="btn ghost">Cancel</button>

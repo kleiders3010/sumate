@@ -1,6 +1,6 @@
 // node test.mjs : what must stay true about sheets the server accepts.
 import assert from "node:assert/strict";
-import { cleanSheet, cleanCopy, mergeCopies } from "./src/index.js";
+import { cleanSheet, cleanCopy, mergeCopies, cleanAnswers } from "./src/index.js";
 
 // every row gets a real id, also when the editor sends none (regex.test(undefined) once let "undefined" through)
 const s = cleanSheet({ title: " Lunch ", rows: [{ text: "Desserts", heading: true }, { text: "Cake", need: 2 }, { text: "Drinks" }, { text: "  " }] });
@@ -43,4 +43,18 @@ assert.equal(mergeCopies(A, { id: base.id, key: base.key, deleted: true, changed
 assert.equal(cleanCopy({ ...A, id: "other12345" }, base.id), null);
 assert.equal(cleanCopy({ ...A, key: "short" }, base.id), null);
 assert.equal(cleanCopy({ ...A, entries: [{ ...e("aaaaaaa1", "rowaaaa1", 1), name: " " }] }, base.id).entries.length, 0);
+// the organizer's own questions: bounded, a choice only from its choices, answers only to questions the sheet has
+const qs = cleanSheet({ title: "x", rows: [{ text: "a" }], asks: [{ text: " T-shirt size? ", opts: ["S", "M", "M", " "], req: 1 }, { text: "Allergies?" }, { text: " " },
+  ...Array.from({ length: 9 }, (_, i) => ({ text: "q" + i }))] });
+assert.equal(qs.asks.length, 5); // pinned: at most 5 questions
+assert.deepEqual(qs.asks[0].opts, ["S", "M"]);
+assert.equal(qs.asks[0].req, true);
+assert.equal(qs.asks[1].req, false);
+assert.deepEqual(cleanSheet({ title: "x", rows: [] }).asks, []); // pinned: no questions unless the organizer adds them
+const [size, allergies] = qs.asks;
+assert.deepEqual(cleanAnswers({ [size.id]: "XL", [allergies.id]: " nuts ", zzz: "x" }, qs.asks), { [allergies.id]: "nuts" });
+assert.deepEqual(cleanAnswers({ [size.id]: "M" }, qs.asks), { [size.id]: "M" });
+// the answers travel to the other server with the sign-up
+const withAns = cleanCopy({ id: base.id, key: base.key, sheet: qs, entries: [{ ...e("aaaaaaa9", qs.rows[0].id, 1), ans: { [size.id]: "S", bad: "x" } }] }, base.id);
+assert.deepEqual(withAns.entries[0].ans, { [size.id]: "S" });
 console.log("ok");

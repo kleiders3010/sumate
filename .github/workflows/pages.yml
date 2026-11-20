@@ -28,5 +28,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+      # GitHub lists a just-uploaded artifact a moment later: deploy-pages looking at once found none (twice on 2026-11-20)
+      - run: sleep 15
       - id: deployment
         uses: actions/deploy-pages@v4

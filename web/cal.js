@@ -46,6 +46,14 @@ export function mostFor(sheet, row, mine) {
   return Math.max(0, most);
 }
 
+// Check-in (like SignUpGenius' Participant Check-In): the organizer, or helpers with the check-in link, mark who came.
+// With the sheet's "check themselves in" switch, people can also mark themselves: a line with a day from the start of
+// that day (the sheet's time zone), a line without a day any time.
+export function canSelfIn(sheet, row, now = Date.now()) {
+  if (!sheet.selfIn || !row || row.heading) return false;
+  return !row.date || now >= wallTime(row.date, "00:00", sheet.tz);
+}
+
 export const LOCKS = [0, 60, 180, 360, 720, 1440, 2880, 4320, 10080]; // minutes before a line starts
 
 /** Why sign-ups are not taken now ("closed", "notyet" until it opens, "locked" for a line about to start), or "". */

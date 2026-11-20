@@ -1,7 +1,7 @@
 // node test.mjs : what must stay true about sheets the server accepts.
 import assert from "node:assert/strict";
 import { cleanSheet, cleanCopy, mergeCopies, cleanAnswers, waitingOf } from "./src/index.js";
-import { shut, mostFor, qtyOf } from "../web/cal.js";
+import { shut, mostFor, qtyOf, canSelfIn } from "../web/cal.js";
 
 // every row gets a real id, also when the editor sends none (regex.test(undefined) once let "undefined" through)
 const s = cleanSheet({ title: " Lunch ", rows: [{ text: "Desserts", heading: true }, { text: "Cake", need: 2 }, { text: "Drinks" }, { text: "  " }] });
@@ -111,4 +111,31 @@ const wq = { sheet: { ...qs2, wait: true }, entries: [q("aaaaaaa1", "cookies1", 
 assert.deepEqual([...waitingOf(wq)], [["bbbbbbb2", 1], ["ccccccc3", 2]]);
 wq.entries.shift(); // the first one leaves: both are in (2 + 1 = 3)
 assert.equal(waitingOf(wq).size, 0);
+
+// check-in: the later change wins on both servers (marked on one, undone later on the other), whichever comes first
+const hs = cleanSheet({ title: "Shift", rows: [{ id: "rowaaaa1", text: "Door", need: 2 }] });
+const hb = { id: "abcdefgh23", key: "k".repeat(24), sheet: hs, sheetAt: 1, gone: [], changed: 1 };
+const he = (here, hereAt) => ({ ...e("aaaaaaa1", "rowaaaa1", 1), ...(hereAt ? { here, hereAt } : {}) });
+const H1 = cleanCopy({ ...hb, entries: [he(10, 10)] }, "abcdefgh23"), H2 = cleanCopy({ ...hb, entries: [he(0, 20)] }, "abcdefgh23");
+assert.equal(H1.entries[0].here, 10);
+assert.equal(mergeCopies(H1, H2).entries[0].here, 0);
+assert.deepEqual(mergeCopies(H1, H2), mergeCopies(H2, H1));
+assert.equal(mergeCopies(H1, cleanCopy({ ...hb, entries: [he()] }, "abcdefgh23")).entries[0].here, 10); // never marked loses
+// the check-in link: the one made (or turned off) last
+const D1 = { ...H1, door: "d".repeat(24), doorAt: 5 }, D2 = { ...H1, door: "", doorAt: 7 };
+assert.equal(mergeCopies(D1, D2).door, "");
+assert.equal(cleanCopy({ ...hb, entries: [], door: "x".repeat(24), doorAt: 3 }, "abcdefgh23").door, "x".repeat(24));
+assert.equal(cleanCopy({ ...hb, entries: [], door: "bad" }, "abcdefgh23").door, "");
+// people check themselves in only with the switch, and from the line's day
+const day = { id: "r1", text: "x", date: "2030-01-10" };
+assert.equal(canSelfIn({ selfIn: false }, { id: "r", text: "x" }), false);
+assert.equal(canSelfIn({ selfIn: true }, { id: "r", text: "x" }), true);
+assert.equal(canSelfIn({ selfIn: true, tz: "UTC" }, day, Date.UTC(2030, 0, 9, 23)), false);
+assert.equal(canSelfIn({ selfIn: true, tz: "UTC" }, day, Date.UTC(2030, 0, 10, 0, 1)), true);
+assert.equal(cleanSheet({ title: "x", rows: [], selfIn: 1 }).selfIn, true);
+// someone added at the check-in takes a free spot; on a full line they are extra: never waiting, nobody pushed out
+const ws = { sheet: { rows: [{ id: "r", text: "Door", need: 2 }] }, entries: [
+  { id: "a", row: "r", at: 1 }, { id: "w", row: "r", at: 2, walk: 1, here: 2, hereAt: 2 }, { id: "b", row: "r", at: 3 }, { id: "x", row: "r", at: 4, walk: 1 }] };
+assert.deepEqual([...waitingOf(ws)], [["b", 1]]);
+assert.equal(cleanCopy({ ...hb, entries: [{ ...he(5, 5), walk: 1 }] }, "abcdefgh23").entries[0].walk, 1);
 console.log("ok");

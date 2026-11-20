@@ -1,7 +1,7 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "./i18n.js";
 import { openFeedback } from "./feedback.js";
-import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut, alarmTrigger, REMINDERS, MAX_QTY, qtyOf, mostFor } from "./cal.js";
+import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut, alarmTrigger, REMINDERS, MAX_QTY, qtyOf, mostFor, canSelfIn } from "./cal.js";
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
@@ -46,6 +46,7 @@ function forgetSheet(id) {
   safeSet("sumate.sheets", JSON.stringify(mySheets().filter((s) => s.id !== id)));
 }
 const keyFor = (id) => mySheets().find((s) => s.id === id)?.key || "";
+const doorFor = (id) => mySheets().find((s) => s.id === id)?.door || ""; // a helper's check-in link
 
 function copies() {
   try { return JSON.parse(safeGet("sumate.copies") || "{}") || {}; } catch { return {}; }
@@ -106,6 +107,8 @@ async function api(path, opts = {}, id) {
   const headers = { "X-Sign-Tokens": TOKEN };
   const key = id && keyFor(id);
   if (key) headers["X-Sheet-Key"] = key;
+  const door = id && !key && doorFor(id);
+  if (door) headers["X-Door-Key"] = door;
   if (opts.body) headers["Content-Type"] = "application/json";
   let failed = { error: "offline" };
   for (const i of SERVERS.length > 1 ? [at, 1 - at] : [0]) {
@@ -139,10 +142,12 @@ const errText = (e) => ({
   final: t("The list is final: ask the organizer if you can't come."),
   answer: t("Answer the questions marked as required."),
   gone: t("This sheet doesn't exist"),
+  notday: t("You can check in from the day it happens."),
+  waiting: t("Still on the waiting list: not in yet."),
 }[e] || t("Something went wrong. Try again."));
 
 // ---------- routing ----------
-const PAGES = ["home", "edit", "sheet", "gone"];
+const PAGES = ["home", "edit", "sheet", "door", "gone"];
 function show(id) {
   for (const p of PAGES) $("#" + p).hidden = p !== id;
   window.scrollTo(0, 0);
@@ -161,12 +166,13 @@ function route() {
   clearInterval(pollTimer);
   const p = here();
   // an organizer link carries its key after #k= : keep it on this device, then hide it from the address bar
-  const hk = location.hash.match(/^#k=([a-z0-9]{24})$/);
-  const m = p.match(/^\/s\/([a-z0-9]{10})(\/edit|\/copy)?$/);
+  const hk = location.hash.match(/^#([kd])=([a-z0-9]{24})$/); // #k= the organizer's, #d= a check-in helper's
+  const m = p.match(/^\/s\/([a-z0-9]{10})(\/edit|\/copy|\/door)?$/);
   if (m && hk) {
-    rememberSheet(m[1], { key: hk[1] });
+    rememberSheet(m[1], hk[1] === "k" ? { key: hk[2] } : { door: hk[2] });
     history.replaceState(null, "", location.pathname + location.search);
   }
+  if (m && m[2] === "/door") return openDoor(m[1]);
   if (p === "/new") return openEditor(null);
   if (m && m[2] === "/copy") return openEditor(null, m[1]);
   if (m && m[2]) return openEditor(m[1]);
@@ -185,8 +191,8 @@ function openHome() {
     const li = el("li");
     const b = el("button");
     b.append(el("b", "", s.title || t("Sheet")));
-    b.append(el("span", s.key ? "tag" : "tag alt", s.key ? t("Yours") : t("Signed up")));
-    b.onclick = () => go("/s/" + s.id);
+    b.append(el("span", s.key ? "tag" : "tag alt", s.key ? t("Yours") : s.door ? t("Check-in") : t("Signed up")));
+    b.onclick = () => go("/s/" + s.id + (!s.key && s.door ? "/door" : ""));
     li.append(b);
     list.append(li);
   }
@@ -336,6 +342,7 @@ function readEditor() {
     final: $("#finalSw").checked,
     wait: $("#waitSw").checked,
     qty: $("#qtySw").checked,
+    selfIn: $("#selfInSw").checked,
     per: Number($("#perSel").value) || undefined,
     perRow: Number($("#perRowSel").value) || undefined,
     rows: [...$("#rows").children].map((li) => ({
@@ -449,6 +456,7 @@ async function openEditor(id, from) {
   $("#finalSw").checked = !!s.final;
   $("#waitSw").checked = !!s.wait;
   $("#qtySw").checked = !!s.qty;
+  $("#selfInSw").checked = !!s.selfIn;
   pickNum($("#perSel"), s.per);
   pickNum($("#perRowSel"), s.perRow);
   $("#limits").hidden = !(s.per || s.perRow);
@@ -611,6 +619,7 @@ function renderSheet() {
         // pinned: a final sheet keeps its list once sign-ups are shut (the organizer can still remove anyone)
         const canX = live && (v.owner || (e.mine && !(s.final && shut(s, r, now))));
         const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
+        if (e.here) { const k = el("span", "tick", "✓"); k.title = t("Checked in {when}", { when: hereTime(e.here) }); chip.append(k); }
         chip.append(el("span", "", e.name || t("Taken")));
         if (qtyOf(e) > 1) chip.append(el("b", "qty", "×" + qtyOf(e)));
         if (e.note) chip.append(el("i", "", "· " + e.note));
@@ -655,6 +664,15 @@ function renderSheet() {
       }
       card.append(wl);
     }
+    // check themselves in (the sheet's switch), from the line's day
+    for (const e of list.filter((x) => x.mine)) {
+      if (!live || !canSelfIn(s, r, now)) break;
+      const b = el("button", "btn ghost selfIn" + (e.here ? " on" : ""), e.here ? "✓ " + t("You're checked in") : t("I'm here: check in"));
+      b.setAttribute("aria-pressed", String(!!e.here));
+      if (list.filter((x) => x.mine).length > 1 && e.name) b.textContent += " · " + e.name;
+      b.onclick = () => markHere(e, !e.here, () => renderSheet());
+      card.append(b);
+    }
     if (r.date && list.some((e) => e.mine)) {
       const c = el("button", "btn link cal", "📅 " + t("Add to my calendar"));
       c.onclick = () => openCal(r);
@@ -680,6 +698,108 @@ function renderSheet() {
     : t("{n} signed up", { n: v.entries.length });
 }
 
+// ---------- check-in (like SignUpGenius' Participant Check-In) ----------
+const hereTime = (ms) => new Intl.DateTimeFormat(LANG, { hour: "numeric", minute: "2-digit" }).format(ms);
+async function markHere(e, on, then) {
+  const id = current.id;
+  const r = await api(`/api/sheets/${id}/signups/${e.id}/here`, { method: "POST", body: { on } }, id);
+  if (r.error) { openSheet(id, true); return toast(errText(r.error)); }
+  current = r;
+  keepCopy(id, r);
+  then();
+}
+
+let doorQuery = "";
+async function openDoor(id, quiet = false) {
+  const v = await api("/api/sheets/" + id, {}, id);
+  if (v.error && v.status === 404) { if (!quiet) show("gone"); return; }
+  if (v.error) { showMsg("#doorMsg", errText(v.error)); if (!quiet) { show("door"); pollDoor(id); } return; }
+  current = v;
+  if (v.now) skew = v.now - Date.now();
+  if (!v.door) { // the link was replaced or turned off: the sheet as anyone sees it
+    if (doorFor(id)) { rememberSheet(id, { door: "" }); toast(t("This check-in link was turned off or replaced. Ask the organizer for the new one.")); }
+    return go("/s/" + id, true);
+  }
+  rememberSheet(id, { title: v.sheet.title });
+  showMsg("#doorMsg", "");
+  renderDoor();
+  if (!quiet) { $("#dSearch").value = doorQuery = ""; show("door"); pollDoor(id); }
+}
+function pollDoor(id) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(() => {
+    if (document.visibilityState === "visible" && $("#signBox").hidden && document.activeElement?.classList?.contains("hereBtn") !== true) openDoor(id, true);
+  }, 8000);
+}
+const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function renderDoor() {
+  const v = current;
+  const s = v.sheet;
+  document.title = t("Check-in") + " · " + s.title;
+  $("#dTitle").textContent = s.title;
+  $("#doorShare").hidden = !v.owner;
+  const q = fold(doorQuery.trim());
+  const wrap = $("#drows");
+  wrap.replaceChildren();
+  let total = 0, came = 0, shown = 0;
+  const now = Date.now() + skew;
+  for (const r of s.rows) {
+    if (r.heading) { if (!q) wrap.append(el("h2", "shead", r.text)); continue; }
+    const list = v.entries.filter((e) => e.row === r.id && !e.wait); // the waiting list is not in
+    const spots = list.reduce((n, e) => n + qtyOf(e), 0);
+    const inN = list.filter((e) => e.here).reduce((n, e) => n + qtyOf(e), 0);
+    total += spots; came += inN;
+    const rowHit = !q || fold(r.text).includes(q);
+    const people = rowHit ? list : list.filter((e) => fold(e.name).includes(q) || fold(e.note).includes(q));
+    if (q && !people.length) continue;
+    shown++;
+    const card = el("div", "srow");
+    card.dataset.row = r.id;
+    const top = el("div", "top");
+    top.append(el("span", "what", r.text));
+    // pinned: a line counts who came against who signed up (SignUpGenius: "checked in vs. total spots filled")
+    top.append(el("span", "left" + (spots && inN >= spots ? " in" : ""), t("{n} of {m} here", { n: inN, m: spots })));
+    card.append(top);
+    if (r.date || r.start) {
+      const w = whenText(r, LANG, s.tz, now);
+      card.append(el("span", "when", w.text + (w.zone ? " · " + t("{place} time", { place: w.zone }) : "")));
+    }
+    const dl = el("div", "dlist");
+    for (const e of people) {
+      const row = el("div", "dperson" + (e.here ? " on" : ""));
+      row.dataset.entry = e.id;
+      const who = el("div", "who");
+      who.append(el("b", "", e.name + (qtyOf(e) > 1 ? " ×" + qtyOf(e) : "")));
+      if (e.note) who.append(el("i", "", e.note));
+      if (e.here) who.append(el("span", "at", t("Here since {when}", { when: hereTime(e.here) })));
+      row.append(who);
+      const b = el("button", "hereBtn" + (e.here ? " on" : ""), e.here ? "✓ " + t("Here") : t("Check in"));
+      b.setAttribute("aria-pressed", String(!!e.here));
+      b.title = e.here ? t("Tap again to undo") : "";
+      b.onclick = async () => {
+        b.disabled = true;
+        await markHere(e, !e.here, () => renderDoor());
+        b.disabled = false;
+      };
+      row.append(b);
+      dl.append(row);
+    }
+    if (people.length) card.append(dl);
+    // someone who just turned up (SignUpGenius' walk-ups): added and checked in at once
+    const add = el("button", "btn link walkup", "+ " + t("Someone who just came"));
+    add.onclick = () => openSign(r, true);
+    card.append(add);
+    wrap.append(card);
+  }
+  $("#dNone").hidden = !q || shown > 0;
+  $("#dFill").style.width = total ? Math.round((100 * came) / total) + "%" : "0";
+  $("#dCount").textContent = t("{n} of {m} here", { n: came, m: total });
+}
+$("#dSearch").oninput = () => { doorQuery = $("#dSearch").value; renderDoor(); };
+$("#doorBack").onclick = () => (current?.owner ? go("/s/" + current.id) : go("/"));
+$("#doorBtn").onclick = () => go("/s/" + current.id + "/door");
+$("#doorShare").onclick = () => openShare();
+
 async function removeEntry(e) {
   const id = current.id;
   const r = await api(`/api/sheets/${id}/signups/${e.id}`, { method: "DELETE" }, id);
@@ -694,17 +814,20 @@ async function removeEntry(e) {
 const signId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
 let signRow = null;
 let justJoined = null; // the line this device just signed up for: shown lit for a moment
-function openSign(r) {
+let signHere = false; // added at the check-in: in and checked in at once
+function openSign(r, walkUp = false) {
   signRow = r;
+  signHere = walkUp;
   $("#signRow").textContent = r.text;
+  $("#signDoor").hidden = !walkUp;
   const s = current.sheet;
   const taken = current.entries.filter((e) => e.row === r.id).reduce((n, e) => n + qtyOf(e), 0); // in and waiting
   const isFull = r.need && taken >= r.need;
-  $("#signWait").hidden = !isFull;
+  $("#signWait").hidden = !isFull || walkUp;
   // how many: up to what's left (or the whole line, to wait for), and what one person may still take
   const mine = current.entries.filter((e) => e.mine);
-  const most = current.owner ? Infinity : mostFor(s, r, mine);
-  let top = Math.min(MAX_QTY, most, r.need ? (s.wait ? r.need : r.need - taken) : MAX_QTY);
+  const most = current.owner || walkUp ? Infinity : mostFor(s, r, mine);
+  let top = Math.min(MAX_QTY, most, r.need && !walkUp ? (s.wait ? r.need : r.need - taken) : MAX_QTY);
   const q = $("#signQty");
   q.max = String(Math.max(1, top));
   q.value = "1";
@@ -717,7 +840,7 @@ function openSign(r) {
     : lim.join(" · ");
   $("#signLimit").hidden = !lim.length;
   $("#signForm").querySelector(".btn.primary").disabled = most < 1;
-  $("#signName").value = safeGet("sumate.name") || "";
+  $("#signName").value = walkUp ? "" : safeGet("sumate.name") || "";
   $("#signNote").value = "";
   const box = $("#signAsks");
   box.replaceChildren();
@@ -735,11 +858,12 @@ function openSign(r) {
     }
     f.id = "ask-" + q.id;
     f.dataset.ask = q.id;
-    f.required = q.req && !current.owner; // the organizer may add someone without the answers
+    f.required = q.req && !current.owner && !walkUp; // the organizer (or the check-in) may add someone without the answers
     box.append(lbl, f);
   }
   showMsg("#signMsg", "");
   $("#signBox").hidden = false;
+  $("#signForm").querySelector(".btn.primary").textContent = walkUp ? t("Add and check in") : t("Add me");
   ($("#signName").value ? $("#signNote") : $("#signName")).focus();
 }
 $("#signCancel").onclick = closeBoxes;
@@ -747,14 +871,15 @@ $("#signForm").onsubmit = async (e) => {
   e.preventDefault();
   const name = $("#signName").value.trim();
   if (!name) return $("#signName").focus();
-  safeSet("sumate.name", name);
+  if (!signHere) safeSet("sumate.name", name);
   const id = current.id;
   const btn = $("#signForm").querySelector(".btn.primary");
   btn.disabled = true;
   const r = await api(`/api/sheets/${id}/signups`, {
     method: "POST",
     // its own id: sent again to the other server (no answer from the first), it is still one sign-up
-    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: TOKEN, qty: Number($("#signQty").value) || 1,
+    // a walk-up gets their own token: it isn't this device's sign-up
+    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: signHere ? signId() + signId() : TOKEN, qty: Number($("#signQty").value) || 1, here: signHere || undefined,
       ans: Object.fromEntries([...$("#signAsks").querySelectorAll("[data-ask]")].map((f) => [f.dataset.ask, f.value])) },
   }, id);
   btn.disabled = false;
@@ -764,6 +889,11 @@ $("#signForm").onsubmit = async (e) => {
     return;
   }
   current = r.view;
+  if (signHere) {
+    closeBoxes();
+    renderDoor();
+    return toast(t("{name} added and checked in", { name }));
+  }
   keepCopy(id, current);
   rememberSheet(id, { title: current.sheet.title });
   closeBoxes();
@@ -839,6 +969,7 @@ function openShare(firstTime = false) {
   $("#ownerLinkWrap").hidden = !key;
   $("#ownerLink").value = key ? url + "#k=" + key : "";
   $("#nativeShare").hidden = !navigator.share;
+  showDoorLink();
   const q = $("#qr");
   q.replaceChildren();
   if (window.qrcode) {
@@ -850,6 +981,26 @@ function openShare(firstTime = false) {
   $("#shareBox").hidden = false;
 }
 $("#shareBtn").onclick = () => openShare();
+function showDoorLink() {
+  const v = current;
+  $("#doorLinkWrap").hidden = !v?.owner || v.stale;
+  if (!v?.owner) return;
+  $("#doorLinkOn").hidden = !v.doorKey;
+  $("#doorLink").value = v.doorKey ? sheetUrl(v.id) + "/door#d=" + v.doorKey : "";
+  $("#doorMake").textContent = v.doorKey ? t("New link (the old one stops working)") : t("Make a check-in link");
+  $("#doorOff").hidden = !v.doorKey;
+}
+async function setDoor(on) {
+  const id = current.id;
+  const r = await api(`/api/sheets/${id}/door`, { method: on ? "POST" : "DELETE" }, id);
+  if (r.error) return toast(errText(r.error));
+  current = r;
+  showDoorLink();
+  toast(on ? t("Check-in link ready") : t("Check-in link turned off"));
+}
+$("#doorMake").onclick = () => setDoor(true);
+$("#doorOff").onclick = () => setDoor(false);
+$("#copyDoor").onclick = () => copy($("#doorLink").value);
 $("#copyLink").onclick = () => copy($("#shareLink").value);
 $("#copyOwner").onclick = () => copy($("#ownerLink").value);
 $("#nativeShare").onclick = () => {
@@ -940,12 +1091,13 @@ $("#csvBtn").onclick = () => {
   const dated = v.sheet.rows.some((r) => r.date || r.start);
   const waits = v.entries.some((x) => x.wait);
   const many = v.sheet.qty || v.entries.some((x) => qtyOf(x) > 1);
-  const lines = [[t("Line"), t("Name"), ...(many ? [t("How many")] : []), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...(waits ? [t("Waiting list")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
+  const came = v.sheet.selfIn || !!v.doorKey || v.entries.some((x) => x.here); // check-in used: who came, and when
+  const lines = [[t("Line"), t("Name"), ...(many ? [t("How many")] : []), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...(waits ? [t("Waiting list")] : []), ...(came ? [t("Checked in")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
   for (const r of v.sheet.rows) {
     if (r.heading) continue;
     for (const e of v.entries.filter((x) => x.row === r.id)) {
       const slot = dated ? [r.date || "", r.start ? r.start + (r.end ? "-" + r.end : "") : ""] : [];
-      lines.push([r.text, e.name, ...(many ? [qtyOf(e)] : []), e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...(waits ? [e.wait || ""] : []), ...answersOf(e, asks)].map(cell).join(","));
+      lines.push([r.text, e.name, ...(many ? [qtyOf(e)] : []), e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...(waits ? [e.wait || ""] : []), ...(came ? [e.here ? new Date(e.here).toLocaleString(LANG) : ""] : []), ...answersOf(e, asks)].map(cell).join(","));
     }
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });

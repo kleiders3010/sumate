@@ -11,7 +11,7 @@
 // the other server can't be reached the copy is sent again later (the alarm), and a server asked for a sheet it
 // doesn't have asks the other one first.
 
-import { shut, LOCKS, MAX_QTY, qtyOf, mostFor } from "../../web/cal.js"; // (on the game host: ./cal.mjs, see kinetic/pack.mjs)
+import { shut, LOCKS, MAX_QTY, qtyOf, mostFor, canSelfIn } from "../../web/cal.js"; // (on the game host: ./cal.mjs, see kinetic/pack.mjs)
 
 const KEEP_MS = 90 * 24 * 3600 * 1000;
 const MAX_ROWS = 200;
@@ -107,6 +107,7 @@ export function cleanSheet(s) {
     qty: !!s.qty, // people may take more than one spot of a line at once ("2 dozen cookies")
     ...(perN(s.per) ? { per: perN(s.per) } : {}), // the most one person may take on the whole sheet
     ...(perN(s.perRow) ? { perRow: perN(s.perRow) } : {}), // ... and on one line
+    selfIn: !!s.selfIn, // people can check themselves in when they arrive (from the line's day)
   };
 }
 const perN = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_QTY ? v : 0);
@@ -140,10 +141,14 @@ export function cleanCopy(d, id) {
     seen.add(e.id);
     const ans = cleanAnswers(e.ans, sheet.asks);
     entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at), ...(Object.keys(ans).length ? { ans } : {}),
-      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}) });
+      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e), ...(e.walk ? { walk: 1 } : {}) });
   }
-  return { id, key: d.key, sheet, sheetAt: num(d.sheetAt), entries, gone, changed: num(d.changed) };
+  const door = isId(d.door, 24, 24) ? d.door : "";
+  return { id, key: d.key, sheet, sheetAt: num(d.sheetAt), entries, gone, changed: num(d.changed), door, doorAt: num(d.doorAt) };
 }
+
+/** A sign-up's check-in: when it was marked (0 = not here) and when that last changed (the later change wins). */
+const hereOf = (e) => (num(e.hereAt) > 0 ? { here: Math.max(0, num(e.here)), hereAt: num(e.hereAt) } : {});
 
 /** Two copies of one sheet made into one. The same two copies give the same result, whichever comes first. */
 export function mergeCopies(a, b) {
@@ -156,13 +161,20 @@ export function mergeCopies(a, b) {
   const goneSet = new Set(gone);
   const rows = new Set(first.sheet.rows.filter((r) => !r.heading).map((r) => r.id));
   const byId = new Map();
-  for (const e of [...a.entries, ...b.entries]) if (!byId.has(e.id) && !goneSet.has(e.id) && rows.has(e.row)) byId.set(e.id, e);
+  for (const e of [...a.entries, ...b.entries]) {
+    if (goneSet.has(e.id) || !rows.has(e.row)) continue;
+    const had = byId.get(e.id);
+    // the same sign-up on both: the later check-in change (marked or unmarked) wins, the same whichever comes first
+    if (!had || (e.hereAt || 0) > (had.hereAt || 0) || ((e.hereAt || 0) === (had.hereAt || 0) && (e.here || 0) > (had.here || 0))) byId.set(e.id, e);
+  }
   const entries = [...byId.values()].sort((x, y) => x.at - y.at || (x.id < y.id ? -1 : 1)).slice(0, MAX_ENTRIES);
-  return { id: a.id, key: a.key, sheet: first.sheet, sheetAt: first.sheetAt || 0, entries, gone, changed };
+  // the check-in link: the one made (or turned off) last
+  const dk = (b.doorAt || 0) > (a.doorAt || 0) || ((b.doorAt || 0) === (a.doorAt || 0) && (b.door || "") > (a.door || "")) ? b : a;
+  return { id: a.id, key: a.key, sheet: first.sheet, sheetAt: first.sheetAt || 0, entries, gone, changed, door: dk.door || "", doorAt: dk.doorAt || 0 };
 }
 
 // what two copies must agree on (not the bookkeeping of who sent what when)
-const content = (d) => (d ? JSON.stringify([d.deleted || false, d.key, d.sheet, d.sheetAt, d.entries, [...(d.gone || [])].sort()]) : "");
+const content = (d) => (d ? JSON.stringify([d.deleted || false, d.key, d.sheet, d.sheetAt, d.entries, [...(d.gone || [])].sort(), d.door || "", d.doorAt || 0]) : "");
 
 export default {
   async fetch(req, env) {
@@ -309,6 +321,12 @@ export class Sheet {
     return !!this.d && !this.d.deleted && k.length === this.d.key.length && k === this.d.key;
   }
 
+  /** A helper with the check-in link (or the organizer): may mark who came and add someone who just turned up. */
+  isDoor(req) {
+    const k = req.headers.get("X-Door-Key") || "";
+    return this.isOwner(req) || (!!this.d?.door && k.length === this.d.door.length && k === this.d.door);
+  }
+
   isPeer(req) {
     const k = req.headers.get("X-Sync-Key") || "";
     return !!this.env.SYNC_KEY && k.length === this.env.SYNC_KEY.length && k === this.env.SYNC_KEY;
@@ -317,23 +335,28 @@ export class Sheet {
   /** What a visitor sees: names only if the organizer shows them (the organizer always sees them). */
   view(req) {
     const owner = this.isOwner(req);
+    const door = this.isDoor(req);
     const mine = new Set((req.headers.get("X-Sign-Tokens") || "").split(",").filter(Boolean));
     const d = this.d;
     const waits = waitingOf(d);
     return {
       id: d.id,
       owner,
+      ...(door ? { door: true } : {}), // checking people in: names shown (to mark them), answers not
+      ...(owner && d.door ? { doorKey: d.door } : {}), // the organizer can share (or replace) the check-in link
       sheet: d.sheet,
       changed: d.changed,
       now: Date.now(), // the app opens and closes by the server's clock, not the device's
       entries: d.entries.map((e) => {
         const isMine = mine.has(e.token);
-        const show = owner || isMine || d.sheet.showNames;
+        const show = door || isMine || d.sheet.showNames;
         // the answers to the organizer's questions: only the organizer and the person who gave them see them
         const ans = owner || isMine ? cleanAnswers(e.ans, d.sheet.asks) : undefined;
         return { id: e.id, row: e.row, name: show ? e.name : "", note: show ? e.note : "", mine: isMine, at: owner ? e.at : undefined, ans,
           ...(qtyOf(e) > 1 ? { qty: qtyOf(e) } : {}),
-          ...(waits.has(e.id) ? { wait: waits.get(e.id) } : {}) };
+          ...(waits.has(e.id) ? { wait: waits.get(e.id) } : {}),
+          // pinned: who came is seen by the organizer, the check-in helpers and the person themselves, not everyone
+          ...((door || isMine) && e.here ? { here: e.here } : {}) };
       }),
     };
   }
@@ -410,25 +433,56 @@ export class Sheet {
       const name = line(b?.name, 60);
       if (!row || !name) return json({ error: "bad sign-up" }, 400);
       const owner = this.isOwner(req);
+      const staff = this.isDoor(req); // the organizer or a check-in helper: someone who just turned up is added
       const why = shut(d.sheet, row);
-      if (why && !owner) return json({ error: why }, 409);
+      if (why && !staff) return json({ error: why }, 409);
       // how many spots: one, or (when the sheet lets people) up to what the line needs
       let qty = d.sheet.qty ? Math.max(1, Math.min(MAX_QTY, Math.floor(Number(b?.qty)) || 1)) : 1;
       if (row.need) qty = Math.min(qty, row.need);
       const taken = d.entries.filter((e) => e.row === row.id).reduce((n, e) => n + qtyOf(e), 0);
-      if (row.need && !d.sheet.wait && taken + qty > row.need) return json({ error: taken >= row.need ? "full" : "few" }, 409);
+      if (row.need && !d.sheet.wait && !(staff && b?.here) && taken + qty > row.need) return json({ error: taken >= row.need ? "full" : "few" }, 409);
       const token = isId(b?.token, 16, 32) ? b.token : randomToken(20);
       // pinned: the most one person may take (SignUpGenius' quantity limits); the organizer adding someone is not held to it
-      if (!owner && mostFor(d.sheet, row, d.entries.filter((e) => e.token === token)) < qty) return json({ error: "limit" }, 409);
+      if (!staff && mostFor(d.sheet, row, d.entries.filter((e) => e.token === token)) < qty) return json({ error: "limit" }, 409);
       if (d.entries.length >= MAX_ENTRIES) return json({ error: "full" }, 409);
       const asks = d.sheet.asks || [];
       const ans = cleanAnswers(b?.ans, asks);
       // pinned: a required question must be answered, except when the organizer adds someone
-      if (!owner && asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
-      d.entries.push({ id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: Date.now(),
-        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}) });
+      if (!staff && asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
+      const now = Date.now();
+      d.entries.push({ id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: now,
+        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}), ...(staff && b?.here ? { here: now, hereAt: now, walk: 1 } : {}) });
       await this.save();
       return json({ token, view: this.view(withToken(req, token)) });
+    }
+
+    const hm = rest.match(/^\/signups\/([a-z0-9]{8})\/here$/);
+    if (hm && req.method === "POST") {
+      const e = d.entries.find((x) => x.id === hm[1]);
+      if (!e) return json({ error: "gone" }, 404);
+      const mine = (req.headers.get("X-Sign-Tokens") || "").split(",").includes(e.token);
+      const row = d.sheet.rows.find((r) => r.id === e.row);
+      // pinned: the organizer and check-in helpers mark anyone; a person only themselves, when the sheet lets them
+      if (!this.isDoor(req) && !(mine && canSelfIn(d.sheet, row))) return json({ error: mine ? "notday" : "not yours" }, 403);
+      if (waitingOf(d).has(e.id)) return json({ error: "waiting" }, 409); // on the waiting list: not in yet
+      const b = await readJson(req);
+      const on = b?.on !== false;
+      if (!!e.here !== on) {
+        const now = Math.max(Date.now(), (e.hereAt || 0) + 1);
+        e.here = on ? now : 0;
+        e.hereAt = now;
+        await this.save();
+      }
+      return json(this.view(req));
+    }
+
+    if (rest === "/door" && (req.method === "POST" || req.method === "DELETE")) {
+      if (!this.isOwner(req)) return json({ error: "not yours" }, 403);
+      // a new check-in link (the old one stops working), or none
+      d.door = req.method === "POST" ? randomToken(24) : "";
+      d.doorAt = Math.max(Date.now(), (d.doorAt || 0) + 1);
+      await this.save();
+      return json(this.view(req));
     }
 
     const del = rest.match(/^\/signups\/([a-z0-9]{8})$/);
@@ -465,6 +519,7 @@ export function waitingOf(d) {
     let used = 0, n = 0;
     for (const e of byRow.get(r.id) || []) {
       if (!n && used + qtyOf(e) <= r.need) used += qtyOf(e);
+      else if (e.walk) continue; // pinned: someone added at the check-in on a full line is extra: never waiting, nobody pushed out
       else out.set(e.id, ++n);
     }
   }

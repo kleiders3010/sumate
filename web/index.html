@@ -92,6 +92,7 @@
       <label class="switch"><input type="checkbox" id="openSw" checked><span>Open for sign-ups</span></label>
       <label class="switch"><input type="checkbox" id="waitSw"><span>Waiting list when a line is full</span></label>
       <label class="switch"><input type="checkbox" id="qtySw"><span>People can take more than one (e.g. 2 dozen cookies)</span></label>
+      <label class="switch"><input type="checkbox" id="selfInSw"><span>People can check themselves in when they arrive</span></label>
       <button id="limitsBtn" type="button" class="btn link left">👤 Limit per person</button>
       <div id="limits" class="timing" hidden>
         <label class="lbl">Most one person can take on the sheet
@@ -155,10 +156,34 @@
     <div id="ownerTools" class="tools" hidden>
       <button id="csvBtn" class="btn ghost">Download (CSV)</button>
       <button id="copyBtn" class="btn ghost">Make a copy</button>
+      <button id="doorBtn" class="btn ghost">✓ Check-in</button>
     </div>
     <p id="sheetMsg" class="msg" hidden></p>
     <p class="small foot"><a href="#" class="fbOpen">Report a problem or idea</a></p>
     <p class="small embedfoot"><a id="openFull" target="_blank" rel="noopener">Sumate ↗</a></p>
+  </div>
+</section>
+
+<!-- Check-in (the organizer, or helpers with the check-in link) -->
+<section id="door" class="page" hidden>
+  <header class="bar">
+    <button id="doorBack" class="btn link">Back</button>
+    <span></span>
+    <span class="barBtns"><button id="doorShare" class="btn ghost" hidden>Check-in link</button></span>
+  </header>
+  <div class="col wide">
+    <div>
+      <p class="small kicker">Check-in</p>
+      <h1 id="dTitle" class="stitle"></h1>
+    </div>
+    <div class="progress">
+      <div class="track"><div id="dFill" class="fill"></div></div>
+      <span id="dCount" class="small"></span>
+    </div>
+    <input id="dSearch" type="search" placeholder="Find a name or a line" autocomplete="off">
+    <p id="doorMsg" class="msg" hidden></p>
+    <div id="drows" class="srows"></div>
+    <p id="dNone" class="note" hidden>Nobody by that name.</p>
   </div>
 </section>
 
@@ -175,6 +200,7 @@
 <div id="signBox" class="sheetbox" hidden>
   <form id="signForm" class="box">
     <b id="signRow" class="boxtitle"></b>
+    <p id="signDoor" class="small hint" hidden>Someone who just came: added and checked in.</p>
     <p id="signWait" class="small hint" hidden>The line is full. You go on the waiting list, and if a spot opens you're in by yourself, in order.</p>
     <label for="signName" class="lbl">Your name</label>
     <input id="signName" maxlength="60" autocomplete="name" required>
@@ -236,6 +262,14 @@
     <div id="ownerLinkWrap" class="ownerlink" hidden>
       <p class="small"><b>Your organizer link</b>: keep it private. It's the only way to edit.</p>
       <div class="linkline"><input id="ownerLink" readonly><button id="copyOwner" class="btn ghost">Copy</button></div>
+    </div>
+    <div id="doorLinkWrap" class="ownerlink" hidden>
+      <p class="small"><b>Check-in link</b>: for helpers at the door. They see the names, mark who came and can add someone who just turned up; they can't edit or remove anyone.</p>
+      <div id="doorLinkOn" class="linkline"><input id="doorLink" readonly><button id="copyDoor" class="btn ghost">Copy</button></div>
+      <div class="tools">
+        <button id="doorMake" type="button" class="btn ghost">Make a check-in link</button>
+        <button id="doorOff" type="button" class="btn link">Turn it off</button>
+      </div>
     </div>
     <button id="shareClose" class="btn link">Close</button>
   </div>

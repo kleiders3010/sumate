@@ -138,4 +138,26 @@ const ws = { sheet: { rows: [{ id: "r", text: "Door", need: 2 }] }, entries: [
   { id: "a", row: "r", at: 1 }, { id: "w", row: "r", at: 2, walk: 1, here: 2, hereAt: 2 }, { id: "b", row: "r", at: 3 }, { id: "x", row: "r", at: 4, walk: 1 }] };
 assert.deepEqual([...waitingOf(ws)], [["b", 1]]);
 assert.equal(cleanCopy({ ...hb, entries: [{ ...he(5, 5), walk: 1 }] }, "abcdefgh23").entries[0].walk, 1);
+
+// a changed sign-up (moved to another line, a new note): the later change wins on both servers, whichever comes
+// first, and a check-in made meanwhile on the other server is kept on its own
+const ms = cleanSheet({ title: "Shift", rows: [{ id: "rowaaaa1", text: "Door", need: 2 }, { id: "rowbbbb2", text: "Bar", need: 2 }] });
+const mb = { id: "abcdefgh23", key: "k".repeat(24), sheet: ms, sheetAt: 1, gone: [], changed: 1 };
+const orig = e("aaaaaaa1", "rowaaaa1", 1);
+const M1 = cleanCopy({ ...mb, entries: [{ ...orig, row: "rowbbbb2", note: "late", at: 30, editAt: 30 }] }, "abcdefgh23");
+const M2 = cleanCopy({ ...mb, entries: [{ ...orig, here: 25, hereAt: 25 }] }, "abcdefgh23");
+assert.equal(M1.entries[0].editAt, 30); // copies carry when it was changed
+assert.deepEqual(mergeCopies(M1, M2), mergeCopies(M2, M1));
+const mm = mergeCopies(M1, M2).entries[0];
+assert.equal(mm.row, "rowbbbb2");
+assert.equal(mm.note, "late");
+assert.equal(mm.here, 25);
+// two changes: the later one wins; the same time: the same pick on both servers
+const M3 = cleanCopy({ ...mb, entries: [{ ...orig, note: "early", editAt: 20 }] }, "abcdefgh23");
+assert.equal(mergeCopies(M3, M1).entries[0].note, "late");
+const M4 = cleanCopy({ ...mb, entries: [{ ...orig, note: "other", editAt: 30 }] }, "abcdefgh23");
+assert.deepEqual(mergeCopies(M1, M4), mergeCopies(M4, M1));
+// moved onto a line the sheet no longer has (edited later): gone with that line
+const cut = cleanSheet({ title: "Shift", rows: [{ id: "rowaaaa1", text: "Door", need: 2 }] });
+assert.equal(mergeCopies({ ...M2, sheet: cut, sheetAt: 40 }, M1).entries.length, 0);
 console.log("ok");

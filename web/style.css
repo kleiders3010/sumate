@@ -116,8 +116,9 @@ a.btn { text-align: center; text-decoration: none; }
 .person.me { background: var(--mine); }
 .person.anon { background: #eeeae1; color: var(--muted); }
 .person i { font-style: normal; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.person .x { width: 26px; height: 26px; border-radius: 50%; color: var(--muted); font-size: 17px; line-height: 1; }
-.person .x:hover { background: rgba(0, 0, 0, .08); }
+.person .x, .person .ed { width: 26px; height: 26px; border-radius: 50%; color: var(--muted); font-size: 17px; line-height: 1; }
+.person .x:hover, .person .ed:hover { background: rgba(0, 0, 0, .08); }
+.person .ed { font-size: 14px; margin-right: -4px; }
 .join { align-self: flex-start; padding: 8px 18px; }
 .shift { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .shift span { flex-basis: 100%; }

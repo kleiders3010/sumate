@@ -582,7 +582,7 @@ function renderSheet() {
   const on = $("#ownerNote");
   on.hidden = !v.owner;
   on.textContent = v.owner
-    ? (s.showNames ? t("You can remove anyone and download the list.")
+    ? (s.showNames ? t("You can change or remove anyone and download the list.")
       : t("You are the organizer. Only you see the names; others see how many signed up."))
     : "";
 
@@ -629,6 +629,11 @@ function renderSheet() {
           chip.title = s.asks.map((q, i) => said[i] && q.text + " " + said[i]).filter(Boolean).join("\n");
         }
         if (canX) {
+          const c = el("button", "ed", "✎");
+          c.title = e.mine ? t("Change my sign-up") : t("Change {name}", { name: e.name });
+          c.setAttribute("aria-label", c.title);
+          c.onclick = () => openSign(r, false, e);
+          chip.append(c);
           const x = el("button", "x", "×");
           x.title = e.mine ? t("Remove me") : t("Remove {name}", { name: e.name });
           x.setAttribute("aria-label", x.title);
@@ -654,6 +659,11 @@ function renderSheet() {
           chip.title = s.asks.map((q, i) => said[i] && q.text + " " + said[i]).filter(Boolean).join("\n");
         }
         if (canX) {
+          const c = el("button", "ed", "✎");
+          c.title = e.mine ? t("Change my sign-up") : t("Change {name}", { name: e.name });
+          c.setAttribute("aria-label", c.title);
+          c.onclick = () => openSign(r, false, e);
+          chip.append(c);
           const x = el("button", "x", "×");
           x.title = e.mine ? t("Remove me") : t("Remove {name}", { name: e.name });
           x.setAttribute("aria-label", x.title);
@@ -815,22 +825,23 @@ const signId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => "
 let signRow = null;
 let justJoined = null; // the line this device just signed up for: shown lit for a moment
 let signHere = false; // added at the check-in: in and checked in at once
-function openSign(r, walkUp = false) {
-  signRow = r;
-  signHere = walkUp;
-  $("#signRow").textContent = r.text;
-  $("#signDoor").hidden = !walkUp;
+let signChange = null; // the sign-up being changed (like SignUpGenius' Edit / Swap; the organizer's Move)
+const spotsOn = (r, but) => current.entries.filter((e) => e.row === r.id && e !== but).reduce((n, e) => n + qtyOf(e), 0); // in and waiting
+/** How many one may take on this line (and why not more), for a new sign-up or the one being changed. */
+function fitQty(r) {
   const s = current.sheet;
-  const taken = current.entries.filter((e) => e.row === r.id).reduce((n, e) => n + qtyOf(e), 0); // in and waiting
-  const isFull = r.need && taken >= r.need;
-  $("#signWait").hidden = !isFull || walkUp;
-  // how many: up to what's left (or the whole line, to wait for), and what one person may still take
-  const mine = current.entries.filter((e) => e.mine);
-  const most = current.owner || walkUp ? Infinity : mostFor(s, r, mine);
-  let top = Math.min(MAX_QTY, most, r.need && !walkUp ? (s.wait ? r.need : r.need - taken) : MAX_QTY);
+  const ch = signChange;
+  const taken = spotsOn(r, ch);
+  const stays = ch && ch.row === r.id;
+  // pinned: a change moves only onto room (no waiting list); the organizer onto a full line by trading places
+  const roomOnly = ch && !(stays && ch.wait);
+  const mine = current.entries.filter((e) => e.mine && e !== ch);
+  const most = current.owner || signHere ? Infinity : mostFor(s, r, mine);
+  const room = r.need ? (signHere ? MAX_QTY : s.wait && !roomOnly ? r.need : r.need - taken) : MAX_QTY;
+  const top = Math.min(MAX_QTY, most, room);
   const q = $("#signQty");
   q.max = String(Math.max(1, top));
-  q.value = "1";
+  if (!ch || Number(q.value) > top) q.value = String(Math.max(1, Math.min(top, ch ? qtyOf(ch) : 1)));
   $("#signQtyWrap").hidden = !s.qty || top < 2;
   const lim = [s.per && t("Up to {n} per person on this sheet", { n: s.per }), s.perRow && t("Up to {n} per person on each line", { n: s.perRow })].filter(Boolean);
   const rowDone = s.perRow && mostFor({ perRow: s.perRow }, r, mine) < 1;
@@ -839,9 +850,48 @@ function openSign(r, walkUp = false) {
       : t("You already have {n} on this sheet, the most one person can take.", { n: s.per }))
     : lim.join(" · ");
   $("#signLimit").hidden = !lim.length;
-  $("#signForm").querySelector(".btn.primary").disabled = most < 1;
-  $("#signName").value = walkUp ? "" : safeGet("sumate.name") || "";
-  $("#signNote").value = "";
+  const isFull = r.need && taken >= r.need;
+  $("#signWait").hidden = !isFull || signHere || !!ch;
+  // the organizer moving someone onto a full line: they trade places with someone there
+  const trade = !!(ch && !stays && isFull && current.owner);
+  $("#signWithWrap").hidden = !trade;
+  if (trade) {
+    const w = $("#signWith");
+    w.replaceChildren(new Option(t("Choose one"), ""));
+    for (const e of current.entries.filter((x) => x.row === r.id && !!x.wait === !!ch.wait)) w.append(new Option(e.name + (qtyOf(e) > 1 ? " ×" + qtyOf(e) : ""), e.id));
+  }
+  $("#signWith").required = trade;
+  $("#signRow").textContent = ch ? (ch.mine ? t("Change my sign-up") : t("Change {name}", { name: ch.name })) : r.text;
+  $("#signForm").querySelector(".btn.primary").disabled = most < 1 || (ch && !stays && isFull && !current.owner);
+}
+function openSign(r, walkUp = false, change = null) {
+  signRow = r;
+  signHere = walkUp;
+  signChange = change;
+  $("#signDoor").hidden = !walkUp;
+  const s = current.sheet;
+  const mv = $("#signMove");
+  mv.hidden = !change;
+  if (change) {
+    const pick = $("#signLine");
+    pick.replaceChildren();
+    const now = Date.now() + skew;
+    let group = null;
+    for (const x of s.rows) {
+      if (x.heading) { group = el("optgroup"); group.label = x.text; pick.append(group); continue; }
+      const w = x.date || x.start ? " · " + whenText(x, LANG, s.tz).text : "";
+      const full = x.need && spotsOn(x, change) + 1 > x.need;
+      const o = new Option(x.text + w + (x.id !== change.row && full ? " · " + t("Full") : ""), x.id);
+      // a person: only lines taking sign-ups, with room; the organizer: any line (a full one by trading places)
+      if (x.id !== change.row && !current.owner && (full || shut(s, x, now))) o.disabled = true;
+      (group || pick).append(o);
+    }
+    pick.value = change.row;
+  }
+  fitQty(r);
+  $("#signNameLbl").textContent = change && !change.mine ? t("Name") : t("Your name");
+  $("#signName").value = change ? change.name : walkUp ? "" : safeGet("sumate.name") || "";
+  $("#signNote").value = change ? change.note || "" : "";
   const box = $("#signAsks");
   box.replaceChildren();
   for (const q of current.sheet.asks || []) {
@@ -859,16 +909,51 @@ function openSign(r, walkUp = false) {
     f.id = "ask-" + q.id;
     f.dataset.ask = q.id;
     f.required = q.req && !current.owner && !walkUp; // the organizer (or the check-in) may add someone without the answers
+    if (change) f.value = change.ans?.[q.id] || "";
     box.append(lbl, f);
   }
   showMsg("#signMsg", "");
   $("#signBox").hidden = false;
-  $("#signForm").querySelector(".btn.primary").textContent = walkUp ? t("Add and check in") : t("Add me");
-  ($("#signName").value ? $("#signNote") : $("#signName")).focus();
+  $("#signForm").querySelector(".btn.primary").textContent = change ? t("Save") : walkUp ? t("Add and check in") : t("Add me");
+  (change ? $("#signLine") : $("#signName").value ? $("#signNote") : $("#signName")).focus();
 }
+$("#signLine").onchange = () => { signRow = current.sheet.rows.find((x) => x.id === $("#signLine").value) || signRow; fitQty(signRow); };
 $("#signCancel").onclick = closeBoxes;
+const askValues = () => Object.fromEntries([...$("#signAsks").querySelectorAll("[data-ask]")].map((f) => [f.dataset.ask, f.value]));
+async function saveChange() {
+  const ch = signChange;
+  const id = current.id;
+  const name = $("#signName").value.trim();
+  if (!name) return $("#signName").focus();
+  if (ch.mine) safeSet("sumate.name", name);
+  const btn = $("#signForm").querySelector(".btn.primary");
+  btn.disabled = true;
+  const to = signRow;
+  const trade = !$("#signWithWrap").hidden && $("#signWith").value;
+  const other = trade && current.entries.find((x) => x.id === trade);
+  const r = await api(`/api/sheets/${id}/signups/${ch.id}`, {
+    method: "POST",
+    body: { row: to.id, name, note: $("#signNote").value, qty: Number($("#signQty").value) || 1, ans: askValues(), ...(trade ? { with: trade } : {}) },
+  }, id);
+  btn.disabled = false;
+  if (r.error) {
+    showMsg("#signMsg", r.error === "nosign" ? t("That sign-up isn't there any more.") : errText(r.error));
+    if (["full", "few", "closed", "notyet", "locked", "final", "nosign"].includes(r.error)) openSheet(id, true);
+    return;
+  }
+  current = r;
+  keepCopy(id, current);
+  closeBoxes();
+  justJoined = to.id;
+  renderSheet();
+  $(".srow.just")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  setTimeout(() => { justJoined = null; $(".srow.just")?.classList.remove("just"); }, 2500);
+  toast(to.id === ch.row ? t("Saved") : other ? t("{a} and {b} traded places", { a: name, b: other.name })
+    : ch.mine ? t("Moved you to {line}", { line: to.text }) : t("Moved {name} to {line}", { name, line: to.text }));
+}
 $("#signForm").onsubmit = async (e) => {
   e.preventDefault();
+  if (signChange) return saveChange();
   const name = $("#signName").value.trim();
   if (!name) return $("#signName").focus();
   if (!signHere) safeSet("sumate.name", name);
@@ -880,7 +965,7 @@ $("#signForm").onsubmit = async (e) => {
     // its own id: sent again to the other server (no answer from the first), it is still one sign-up
     // a walk-up gets their own token: it isn't this device's sign-up
     body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: signHere ? signId() + signId() : TOKEN, qty: Number($("#signQty").value) || 1, here: signHere || undefined,
-      ans: Object.fromEntries([...$("#signAsks").querySelectorAll("[data-ask]")].map((f) => [f.dataset.ask, f.value])) },
+      ans: askValues() },
   }, id);
   btn.disabled = false;
   if (r.error) {

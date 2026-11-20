@@ -141,7 +141,8 @@ export function cleanCopy(d, id) {
     seen.add(e.id);
     const ans = cleanAnswers(e.ans, sheet.asks);
     entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at), ...(Object.keys(ans).length ? { ans } : {}),
-      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e), ...(e.walk ? { walk: 1 } : {}) });
+      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e), ...(e.walk ? { walk: 1 } : {}),
+      ...(num(e.editAt) > 0 ? { editAt: num(e.editAt) } : {}) });
   }
   const door = isId(d.door, 24, 24) ? d.door : "";
   return { id, key: d.key, sheet, sheetAt: num(d.sheetAt), entries, gone, changed: num(d.changed), door, doorAt: num(d.doorAt) };
@@ -162,15 +163,27 @@ export function mergeCopies(a, b) {
   const rows = new Set(first.sheet.rows.filter((r) => !r.heading).map((r) => r.id));
   const byId = new Map();
   for (const e of [...a.entries, ...b.entries]) {
-    if (goneSet.has(e.id) || !rows.has(e.row)) continue;
+    if (goneSet.has(e.id)) continue;
     const had = byId.get(e.id);
-    // the same sign-up on both: the later check-in change (marked or unmarked) wins, the same whichever comes first
-    if (!had || (e.hereAt || 0) > (had.hereAt || 0) || ((e.hereAt || 0) === (had.hereAt || 0) && (e.here || 0) > (had.here || 0))) byId.set(e.id, e);
+    if (!had) { byId.set(e.id, e); continue; }
+    // the same sign-up on both: its later change (moved, edited) wins, and on its own the later check-in change (marked
+    // or unmarked), the same whichever comes first
+    const body = laterEdit(had, e);
+    const hc = (e.hereAt || 0) > (had.hereAt || 0) || ((e.hereAt || 0) === (had.hereAt || 0) && (e.here || 0) > (had.here || 0)) ? e : had;
+    const { here, hereAt, ...rest } = body;
+    byId.set(e.id, { ...rest, ...hereOf(hc) });
   }
-  const entries = [...byId.values()].sort((x, y) => x.at - y.at || (x.id < y.id ? -1 : 1)).slice(0, MAX_ENTRIES);
+  const entries = [...byId.values()].filter((e) => rows.has(e.row)).sort((x, y) => x.at - y.at || (x.id < y.id ? -1 : 1)).slice(0, MAX_ENTRIES);
   // the check-in link: the one made (or turned off) last
   const dk = (b.doorAt || 0) > (a.doorAt || 0) || ((b.doorAt || 0) === (a.doorAt || 0) && (b.door || "") > (a.door || "")) ? b : a;
   return { id: a.id, key: a.key, sheet: first.sheet, sheetAt: first.sheetAt || 0, entries, gone, changed, door: dk.door || "", doorAt: dk.doorAt || 0 };
+}
+
+/** Of two copies of one sign-up, the one changed last (the same whichever comes first). */
+function laterEdit(x, y) {
+  const ex = x.editAt || 0, ey = y.editAt || 0;
+  if (ex !== ey) return ey > ex ? y : x;
+  return JSON.stringify(y) > JSON.stringify(x) ? y : x;
 }
 
 // what two copies must agree on (not the bookkeeping of who sent what when)
@@ -481,6 +494,78 @@ export class Sheet {
       // a new check-in link (the old one stops working), or none
       d.door = req.method === "POST" ? randomToken(24) : "";
       d.doorAt = Math.max(Date.now(), (d.doorAt || 0) + 1);
+      await this.save();
+      return json(this.view(req));
+    }
+
+    // Change a sign-up (like SignUpGenius' Edit / Swap next to your sign-up, and the organizer's Move): the person
+    // changes their name, note, answers or how many, or moves to another line with room; the organizer moves anyone,
+    // and onto a full line by trading places with someone there. Name, note and answers go along.
+    const ch = rest.match(/^\/signups\/([a-z0-9]{8})$/);
+    if (ch && req.method === "POST") {
+      const e = d.entries.find((x) => x.id === ch[1]);
+      if (!e) return json({ error: "nosign" }, 404);
+      const tokens = (req.headers.get("X-Sign-Tokens") || "").split(",");
+      const owner = this.isOwner(req);
+      if (!owner && !tokens.includes(e.token)) return json({ error: "not yours" }, 403);
+      const b = await readJson(req);
+      const from = d.sheet.rows.find((r) => r.id === e.row);
+      const to = b?.row === undefined ? from : d.sheet.rows.find((r) => r.id === b.row && !r.heading);
+      if (!to) return json({ error: "bad sign-up" }, 400);
+      const moved = to.id !== e.row;
+      const name = b?.name === undefined ? e.name : line(b.name, 60);
+      if (!name) return json({ error: "bad sign-up" }, 400);
+      const note = b?.note === undefined ? e.note : line(b.note, 200);
+      const asks = d.sheet.asks || [];
+      const ans = b?.ans === undefined ? cleanAnswers(e.ans, asks) : cleanAnswers(b.ans, asks);
+      let qty = b?.qty === undefined ? qtyOf(e) : d.sheet.qty ? Math.max(1, Math.min(MAX_QTY, Math.floor(Number(b.qty)) || 1)) : 1;
+      if (to.need) qty = Math.min(qty, to.need);
+      const now = Date.now();
+      const stamp = (x) => Math.max(now, (x.editAt || 0) + 1);
+      const other = isId(b?.with, 8, 8) ? d.entries.find((x) => x.id === b.with && x !== e) : null;
+      if (b?.with !== undefined && b.with !== null) {
+        // pinned: trading places is the organizer's (two people's sign-ups change), with someone on another line
+        if (!owner) return json({ error: "not yours" }, 403);
+        if (!other || other.row !== to.id || !moved) return json({ error: "nosign" }, 404);
+        const waits = waitingOf(d);
+        if (waits.has(e.id) !== waits.has(other.id)) return json({ error: "waiting" }, 409);
+        // each line after the trade: no more over what it needs than it already was
+        const total = (row) => d.entries.filter((x) => x.row === row.id).reduce((n, x) => n + qtyOf(x), 0);
+        const fits = (row, out, inn) => !row?.need || total(row) - out + inn <= Math.max(row.need, total(row));
+        if (!fits(to, qtyOf(other), qty) || !fits(from, qtyOf(e), qtyOf(other))) return json({ error: "few" }, 409);
+        const [ea, oa] = [e.at, other.at];
+        Object.assign(other, { row: e.row, at: ea, editAt: stamp(other) }, other.here ? { here: 0, hereAt: Math.max(now, (other.hereAt || 0) + 1) } : {});
+        delete other.walk;
+        Object.assign(e, { row: to.id, at: oa, name, note, editAt: stamp(e) }, qty > 1 ? { qty } : {}, e.here ? { here: 0, hereAt: Math.max(now, (e.hereAt || 0) + 1) } : {});
+        if (qty <= 1) delete e.qty;
+        if (Object.keys(ans).length) e.ans = ans; else delete e.ans;
+        delete e.walk;
+        await this.save();
+        return json(this.view(req));
+      }
+      if (!owner) {
+        // pinned: a final sheet keeps its list once sign-ups are shut; a person moves only to a line still taking sign-ups
+        if (d.sheet.final && shut(d.sheet, from)) return json({ error: "final" }, 409);
+        if (moved || qty > qtyOf(e)) { const why = shut(d.sheet, to); if (why) return json({ error: why }, 409); }
+        // pinned: the most one person may take counts their other sign-ups, not this one
+        if ((moved || qty > qtyOf(e)) && mostFor(d.sheet, to, d.entries.filter((x) => x !== e && tokens.includes(x.token))) < qty) return json({ error: "limit" }, 409);
+        if (asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
+      }
+      // pinned: moving (or taking more) needs room there: nobody is pushed onto a waiting list, nor jumps one
+      if (to.need && (moved || qty > qtyOf(e))) {
+        const taken = d.entries.filter((x) => x.row === to.id && x !== e).reduce((n, x) => n + qtyOf(x), 0);
+        if (taken + qty > to.need && !(!moved && waitingOf(d).has(e.id))) return json({ error: taken >= to.need ? "full" : "few" }, 409);
+      }
+      if (name === e.name && note === e.note && JSON.stringify(ans) === JSON.stringify(cleanAnswers(e.ans, asks)) && qty === qtyOf(e) && !moved) return json(this.view(req));
+      Object.assign(e, { name, note, editAt: stamp(e) });
+      if (qty > 1) e.qty = qty; else delete e.qty;
+      if (Object.keys(ans).length) e.ans = ans; else delete e.ans;
+      if (moved) {
+        e.row = to.id;
+        e.at = now; // in the new line's order from now
+        delete e.walk;
+        if (e.here || e.hereAt) { e.here = 0; e.hereAt = Math.max(now, (e.hereAt || 0) + 1); } // checked in for the old line, not this one
+      }
       await this.save();
       return json(this.view(req));
     }

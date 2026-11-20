@@ -202,7 +202,16 @@
     <b id="signRow" class="boxtitle"></b>
     <p id="signDoor" class="small hint" hidden>Someone who just came: added and checked in.</p>
     <p id="signWait" class="small hint" hidden>The line is full. You go on the waiting list, and if a spot opens you're in by yourself, in order.</p>
-    <label for="signName" class="lbl">Your name</label>
+    <div id="signMove" hidden>
+      <label for="signLine" class="lbl">Signed up for</label>
+      <select id="signLine"></select>
+      <div id="signWithWrap" hidden>
+        <label for="signWith" class="lbl">Trade places with</label>
+        <select id="signWith"></select>
+        <p class="small hint">That one is full: the person you pick takes this spot.</p>
+      </div>
+    </div>
+    <label for="signName" id="signNameLbl" class="lbl">Your name</label>
     <input id="signName" maxlength="60" autocomplete="name" required>
     <div id="signQtyWrap" class="qtyrow" hidden>
       <label for="signQty" class="lbl">How many</label>

@@ -32,6 +32,20 @@ export function wallTime(day, time, tz) {
 // When sign-ups are taken (like SignUpGenius' start/stop dates and "lock before the event"): the sheet may open and
 // close at set moments, and each line with a day may stop taking sign-ups some minutes before it starts. Both servers
 // and the app use this same function.
+// More than one spot in a sign-up (like SignUpGenius: "she can simply choose a quantity of 2"), and the most one person
+// may take (SignUpGenius' "Quantity Limits for Users": on the whole sheet, or on each line). A person is one device here.
+export const MAX_QTY = 99;
+export const qtyOf = (e) => (Number.isInteger(e?.qty) && e.qty > 1 ? e.qty : 1);
+const sumQty = (list) => list.reduce((n, e) => n + qtyOf(e), 0);
+/** The most this person may still take on this line by the sheet's per-person limits, counting what they have
+ * (in or waiting). `mine` = their sign-ups. Infinity = no limit. */
+export function mostFor(sheet, row, mine) {
+  let most = Infinity;
+  if (sheet.per) most = Math.min(most, sheet.per - sumQty(mine));
+  if (sheet.perRow) most = Math.min(most, sheet.perRow - sumQty(mine.filter((e) => e.row === row.id)));
+  return Math.max(0, most);
+}
+
 export const LOCKS = [0, 60, 180, 360, 720, 1440, 2880, 4320, 10080]; // minutes before a line starts
 
 /** Why sign-ups are not taken now ("closed", "notyet" until it opens, "locked" for a line about to start), or "". */

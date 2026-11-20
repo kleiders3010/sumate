@@ -91,6 +91,16 @@
       <label class="switch"><input type="checkbox" id="showNames" checked><span>Everyone can see who signed up</span></label>
       <label class="switch"><input type="checkbox" id="openSw" checked><span>Open for sign-ups</span></label>
       <label class="switch"><input type="checkbox" id="waitSw"><span>Waiting list when a line is full</span></label>
+      <label class="switch"><input type="checkbox" id="qtySw"><span>People can take more than one (e.g. 2 dozen cookies)</span></label>
+      <button id="limitsBtn" type="button" class="btn link left">👤 Limit per person</button>
+      <div id="limits" class="timing" hidden>
+        <label class="lbl">Most one person can take on the sheet
+          <select id="perSel"><option value="">No limit</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="15">15</option><option value="20">20</option></select>
+        </label>
+        <label class="lbl">Most one person can take on each line
+          <select id="perRowSel"><option value="">No limit</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="15">15</option><option value="20">20</option></select>
+        </label>
+      </div>
       <button id="timingBtn" type="button" class="btn link left">⏱ Open and close at set times</button>
       <div id="timing" class="timing" hidden>
         <div class="genrow">
@@ -168,6 +178,11 @@
     <p id="signWait" class="small hint" hidden>The line is full. You go on the waiting list, and if a spot opens you're in by yourself, in order.</p>
     <label for="signName" class="lbl">Your name</label>
     <input id="signName" maxlength="60" autocomplete="name" required>
+    <div id="signQtyWrap" class="qtyrow" hidden>
+      <label for="signQty" class="lbl">How many</label>
+      <input id="signQty" type="number" min="1" max="99" value="1" inputmode="numeric">
+    </div>
+    <p id="signLimit" class="small hint" hidden></p>
     <label for="signNote" class="lbl">Note (optional)</label>
     <input id="signNote" maxlength="200" placeholder="e.g. vegan lasagna, I'll be 10 min late">
     <div id="signAsks" class="signAsks"></div>

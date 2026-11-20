@@ -1,7 +1,7 @@
 // Sumate: free sign-up sheets. Plain JS, no build step.
 import { t, translatePage, LANG } from "./i18n.js";
 import { openFeedback } from "./feedback.js";
-import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut, alarmTrigger, REMINDERS } from "./cal.js";
+import { whenText, slotOf, makeSlots, googleLink, outlookLink, icsText, shut, alarmTrigger, REMINDERS, MAX_QTY, qtyOf, mostFor } from "./cal.js";
 // the folder the app lives in: "/" on signup.jurisgames.com, "/sumate/" on the copy at GitHub Pages
 const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
@@ -131,6 +131,8 @@ async function api(path, opts = {}, id) {
 const errText = (e) => ({
   offline: t("No connection. Try again."),
   full: t("Someone just took the last spot."),
+  few: t("There aren't that many spots left."),
+  limit: t("That's more than one person can take on this sheet."),
   closed: t("Sign-ups are closed."),
   notyet: t("Sign-ups aren't open yet."),
   locked: t("This one isn't taking sign-ups any more."),
@@ -333,6 +335,9 @@ function readEditor() {
     lock: $("#lockSel").value === "" ? undefined : Number($("#lockSel").value),
     final: $("#finalSw").checked,
     wait: $("#waitSw").checked,
+    qty: $("#qtySw").checked,
+    per: Number($("#perSel").value) || undefined,
+    perRow: Number($("#perRowSel").value) || undefined,
     rows: [...$("#rows").children].map((li) => ({
       id: li.dataset.id || undefined,
       text: li.querySelector("input").value,
@@ -443,6 +448,10 @@ async function openEditor(id, from) {
   $("#lockSel").value = typeof s.lock === "number" ? String(s.lock) : "";
   $("#finalSw").checked = !!s.final;
   $("#waitSw").checked = !!s.wait;
+  $("#qtySw").checked = !!s.qty;
+  pickNum($("#perSel"), s.per);
+  pickNum($("#perRowSel"), s.perRow);
+  $("#limits").hidden = !(s.per || s.perRow);
   $("#timing").hidden = !(s.opens || s.closes || typeof s.lock === "number" || s.final);
   for (const r of s.rows) $("#rows").append(rowEl(r));
   for (const q of s.asks || []) $("#asks").append(askEl(q));
@@ -455,6 +464,12 @@ async function openEditor(id, from) {
 }
 
 $("#timingBtn").onclick = () => { $("#timing").hidden = !$("#timing").hidden; };
+$("#limitsBtn").onclick = () => { $("#limits").hidden = !$("#limits").hidden; };
+// a limit picker: its own choices, plus the sheet's number if it is another one
+function pickNum(sel, n) {
+  if (n && ![...sel.options].some((o) => o.value === String(n))) sel.append(new Option(String(n), String(n)));
+  sel.value = n ? String(n) : "";
+}
 
 $("#editBack").onclick = () => (editId ? go("/s/" + editId) : go("/"));
 
@@ -576,13 +591,15 @@ function renderSheet() {
     const all = byRow.get(r.id) || [];
     const list = all.filter((e) => !e.wait); // in
     const waiting = all.filter((e) => e.wait).sort((a, b) => a.wait - b.wait); // waiting list, in order
-    if (r.need) { need += r.need; have += Math.min(list.length, r.need); }
-    const full = r.need && list.length >= r.need;
+    const spots = list.reduce((n, e) => n + qtyOf(e), 0); // someone may take more than one
+    if (r.need) { need += r.need; have += Math.min(spots, r.need); }
+    const full = r.need && spots >= r.need;
     const card = el("div", "srow" + (full ? " full" : "") + (r.id === justJoined ? " just" : ""));
     const top = el("div", "top");
     top.append(el("span", "what", r.text));
     top.append(el("span", "left",
-      full ? (waiting.length ? t("Full · {n} waiting", { n: waiting.length }) : t("Full")) : r.need ? t("{n} of {m}", { n: list.length, m: r.need }) : list.length ? t("{n} signed up", { n: list.length }) : ""));
+      full ? (waiting.length ? t("Full · {n} waiting", { n: waiting.length }) : t("Full")) : r.need ? t("{n} of {m}", { n: spots, m: r.need })
+        : spots > list.length ? t("{n} taken", { n: spots }) : list.length ? t("{n} signed up", { n: list.length }) : ""));
     card.append(top);
     if (r.date || r.start) {
       const w = whenText(r, LANG, s.tz);
@@ -595,6 +612,7 @@ function renderSheet() {
         const canX = live && (v.owner || (e.mine && !(s.final && shut(s, r, now))));
         const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
         chip.append(el("span", "", e.name || t("Taken")));
+        if (qtyOf(e) > 1) chip.append(el("b", "qty", "×" + qtyOf(e)));
         if (e.note) chip.append(el("i", "", "· " + e.note));
         const said = answersOf(e, s.asks);
         if (said.some(Boolean)) { // only the organizer and the person themselves get these
@@ -619,6 +637,7 @@ function renderSheet() {
         const canX = live && (v.owner || (e.mine && !(s.final && shut(s, r, now))));
         const chip = el("span", "person" + (e.mine ? " me" : "") + (e.name ? "" : " anon") + (canX ? "" : " noX"));
         chip.append(el("span", "", e.wait + ". " + (e.name || t("Taken"))));
+        if (qtyOf(e) > 1) chip.append(el("b", "qty", "×" + qtyOf(e)));
         if (e.note) chip.append(el("i", "", "· " + e.note));
         const said = answersOf(e, s.asks);
         if (said.some(Boolean)) {
@@ -643,7 +662,10 @@ function renderSheet() {
     }
     const why = shut(s, r, now);
     if (why === "locked" && (!full || s.wait)) card.append(el("span", "shut", t("No more sign-ups for this one")));
-    if (live && (!full || s.wait) && (!why || v.owner)) {
+    // someone who already has the most one person may take: said on the line, no box to fill in for nothing
+    const atMost = !v.owner && (s.per || s.perRow) && mostFor(s, r, v.entries.filter((e) => e.mine)) < 1;
+    if (atMost && live && (!full || s.wait) && !why) card.append(el("span", "shut", t("You have the most one person can take")));
+    else if (live && (!full || s.wait) && (!why || v.owner)) {
       const b = el("button", "btn ghost join" + (full ? " wait" : ""), full ? t("Join the waiting list") : t("Sign up"));
       b.onclick = () => openSign(r);
       card.append(b);
@@ -675,7 +697,26 @@ let justJoined = null; // the line this device just signed up for: shown lit for
 function openSign(r) {
   signRow = r;
   $("#signRow").textContent = r.text;
-  $("#signWait").hidden = !(r.need && current.entries.filter((e) => e.row === r.id && !e.wait).length >= r.need);
+  const s = current.sheet;
+  const taken = current.entries.filter((e) => e.row === r.id).reduce((n, e) => n + qtyOf(e), 0); // in and waiting
+  const isFull = r.need && taken >= r.need;
+  $("#signWait").hidden = !isFull;
+  // how many: up to what's left (or the whole line, to wait for), and what one person may still take
+  const mine = current.entries.filter((e) => e.mine);
+  const most = current.owner ? Infinity : mostFor(s, r, mine);
+  let top = Math.min(MAX_QTY, most, r.need ? (s.wait ? r.need : r.need - taken) : MAX_QTY);
+  const q = $("#signQty");
+  q.max = String(Math.max(1, top));
+  q.value = "1";
+  $("#signQtyWrap").hidden = !s.qty || top < 2;
+  const lim = [s.per && t("Up to {n} per person on this sheet", { n: s.per }), s.perRow && t("Up to {n} per person on each line", { n: s.perRow })].filter(Boolean);
+  const rowDone = s.perRow && mostFor({ perRow: s.perRow }, r, mine) < 1;
+  $("#signLimit").textContent = most < 1
+    ? (rowDone ? t("You already have {n} on this line, the most one person can take.", { n: s.perRow })
+      : t("You already have {n} on this sheet, the most one person can take.", { n: s.per }))
+    : lim.join(" · ");
+  $("#signLimit").hidden = !lim.length;
+  $("#signForm").querySelector(".btn.primary").disabled = most < 1;
   $("#signName").value = safeGet("sumate.name") || "";
   $("#signNote").value = "";
   const box = $("#signAsks");
@@ -713,13 +754,13 @@ $("#signForm").onsubmit = async (e) => {
   const r = await api(`/api/sheets/${id}/signups`, {
     method: "POST",
     // its own id: sent again to the other server (no answer from the first), it is still one sign-up
-    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: TOKEN,
+    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: TOKEN, qty: Number($("#signQty").value) || 1,
       ans: Object.fromEntries([...$("#signAsks").querySelectorAll("[data-ask]")].map((f) => [f.dataset.ask, f.value])) },
   }, id);
   btn.disabled = false;
   if (r.error) {
     showMsg("#signMsg", errText(r.error));
-    if (["full", "closed", "notyet", "locked"].includes(r.error)) openSheet(id, true);
+    if (["full", "few", "closed", "notyet", "locked"].includes(r.error)) openSheet(id, true);
     return;
   }
   current = r.view;
@@ -898,12 +939,13 @@ $("#csvBtn").onclick = () => {
   const asks = v.sheet.asks || [];
   const dated = v.sheet.rows.some((r) => r.date || r.start);
   const waits = v.entries.some((x) => x.wait);
-  const lines = [[t("Line"), t("Name"), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...(waits ? [t("Waiting list")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
+  const many = v.sheet.qty || v.entries.some((x) => qtyOf(x) > 1);
+  const lines = [[t("Line"), t("Name"), ...(many ? [t("How many")] : []), t("Note"), t("When"), ...(dated ? [t("Day"), t("Time")] : []), ...(waits ? [t("Waiting list")] : []), ...asks.map((q) => q.text)].map(cell).join(",")];
   for (const r of v.sheet.rows) {
     if (r.heading) continue;
     for (const e of v.entries.filter((x) => x.row === r.id)) {
       const slot = dated ? [r.date || "", r.start ? r.start + (r.end ? "-" + r.end : "") : ""] : [];
-      lines.push([r.text, e.name, e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...(waits ? [e.wait || ""] : []), ...answersOf(e, asks)].map(cell).join(","));
+      lines.push([r.text, e.name, ...(many ? [qtyOf(e)] : []), e.note, e.at ? new Date(e.at).toLocaleString(LANG) : "", ...slot, ...(waits ? [e.wait || ""] : []), ...answersOf(e, asks)].map(cell).join(","));
     }
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });

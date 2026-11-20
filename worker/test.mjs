@@ -1,7 +1,7 @@
 // node test.mjs : what must stay true about sheets the server accepts.
 import assert from "node:assert/strict";
-import { cleanSheet, cleanCopy, mergeCopies, cleanAnswers } from "./src/index.js";
-import { shut } from "../web/cal.js";
+import { cleanSheet, cleanCopy, mergeCopies, cleanAnswers, waitingOf } from "./src/index.js";
+import { shut, mostFor, qtyOf } from "../web/cal.js";
 
 // every row gets a real id, also when the editor sends none (regex.test(undefined) once let "undefined" through)
 const s = cleanSheet({ title: " Lunch ", rows: [{ text: "Desserts", heading: true }, { text: "Cake", need: 2 }, { text: "Drinks" }, { text: "  " }] });
@@ -92,4 +92,23 @@ assert.equal(shut(open, oc.rows[0], Date.UTC(2026, 11, 2, 12, 0)), "locked");
 assert.equal(shut(open, oc.rows[1], Date.UTC(2026, 11, 9)), ""); // a line without a day never locks
 assert.equal(shut({ ...open, lock: undefined }, oc.rows[0], Date.UTC(2026, 11, 9)), "");
 assert.equal(cleanCopy({ id: base.id, key: base.key, sheet: oc, entries: [] }, base.id).sheet.closes, T0 + 3600e3);
+
+// more than one spot in a sign-up, and the most one person may take (like SignUpGenius' quantity limits)
+const qs2 = cleanSheet({ title: "Bake", qty: true, per: 3, perRow: 500, rows: [{ id: "cookies1", text: "Cookies", need: 3 }, { id: "brownie1", text: "Brownies", need: 0 }] });
+assert.equal(qs2.qty, true);
+assert.equal(qs2.per, 3);
+assert.equal(qs2.perRow, undefined); // out of range: no limit
+assert.equal(cleanSheet({ title: "x", rows: [] }).qty, false); // pinned: off unless the organizer turns it on
+const q = (id, row, at, qty) => ({ ...e(id, row, at), ...(qty ? { qty } : {}) });
+const kept = cleanCopy({ id: base.id, key: base.key, sheet: qs2, entries: [q("aaaaaaa1", "cookies1", 1, 2), q("bbbbbbb2", "cookies1", 2, 1), q("ccccccc3", "cookies1", 3, 500)] }, base.id);
+assert.deepEqual(kept.entries.map(qtyOf), [2, 1, 99]); // the other server keeps how many, bounded
+assert.equal(mostFor(qs2, qs2.rows[0], [q("aaaaaaa1", "cookies1", 1, 2)]), 1);
+assert.equal(mostFor(qs2, qs2.rows[1], [q("aaaaaaa1", "cookies1", 1, 3)]), 0); // the whole sheet counts
+assert.equal(mostFor({ perRow: 2 }, qs2.rows[1], [q("aaaaaaa1", "cookies1", 1, 3)]), 2); // another line doesn't
+assert.equal(mostFor({}, qs2.rows[0], []), Infinity);
+// waiting: spots in the order people came; nobody skips the line, even if a smaller one would fit
+const wq = { sheet: { ...qs2, wait: true }, entries: [q("aaaaaaa1", "cookies1", 1, 2), q("bbbbbbb2", "cookies1", 2, 2), q("ccccccc3", "cookies1", 3, 1)] };
+assert.deepEqual([...waitingOf(wq)], [["bbbbbbb2", 1], ["ccccccc3", 2]]);
+wq.entries.shift(); // the first one leaves: both are in (2 + 1 = 3)
+assert.equal(waitingOf(wq).size, 0);
 console.log("ok");

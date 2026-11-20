@@ -22,6 +22,10 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
   they signed up; when someone leaves (or the organizer makes room for more), the first one waiting is in by
   themselves, with nothing for anyone to do, and their page tells them. The download has a waiting-list column.
 - People sign up with their name and an optional note ("vegan lasagna") and can remove themselves later.
+- More than one at once (a switch for the sheet, like SignUpGenius' quantity): someone brings 2 dozen cookies by
+  signing up for 2 of the line's spots; the line counts spots and shows "Ana ×2". The organizer can also limit how many
+  one person takes, on the whole sheet and / or on each line (on SignUpGenius a paid feature); a person is one device
+  here (there are no accounts), and the organizer adding someone isn't held to it. Both servers enforce it.
 - The organizer can ask up to 5 questions of their own on signing up (a written answer or one of a few choices,
   required or not). Only the organizer (and each person, their own) sees the answers; the download has a column per question.
 - The organizer can edit, remove anyone, close the sheet, show names only to themselves, and download the list
@@ -57,6 +61,7 @@ servers.
     python embed_test.py       # the website code: the sheet on another site, signing up from inside it
     python copy_test.py        # a copy: same lines a week later, nobody on it, the original untouched
     python waitlist_test.py    # the waiting list: in order, moving in by itself when someone leaves
+    python qty_test.py         # more than one at once, the most one person may take
     python e2e.py [base-url]   # whole flow in a headless browser (playwright)
     python failover_test.py    # two sheet servers (kinetic/server.mjs) killed in turn, the device copy
     python mirror_test.py      # the GitHub Pages copy, built and served locally (live: mirror_test.py <pages url> <site>)

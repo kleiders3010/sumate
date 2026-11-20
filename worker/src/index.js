@@ -11,7 +11,7 @@
 // the other server can't be reached the copy is sent again later (the alarm), and a server asked for a sheet it
 // doesn't have asks the other one first.
 
-import { shut, LOCKS } from "../../web/cal.js"; // (on the game host: ./cal.mjs, see kinetic/pack.mjs)
+import { shut, LOCKS, MAX_QTY, qtyOf, mostFor } from "../../web/cal.js"; // (on the game host: ./cal.mjs, see kinetic/pack.mjs)
 
 const KEEP_MS = 90 * 24 * 3600 * 1000;
 const MAX_ROWS = 200;
@@ -104,8 +104,12 @@ export function cleanSheet(s) {
     // a waiting list for full lines (like SignUpGenius' waitlists): who signs up after a line is full waits in order,
     // and when someone leaves, the first one waiting is in by itself (nobody has to do anything)
     wait: !!s.wait,
+    qty: !!s.qty, // people may take more than one spot of a line at once ("2 dozen cookies")
+    ...(perN(s.per) ? { per: perN(s.per) } : {}), // the most one person may take on the whole sheet
+    ...(perN(s.perRow) ? { perRow: perN(s.perRow) } : {}), // ... and on one line
   };
 }
+const perN = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_QTY ? v : 0);
 
 /** A sign-up's answers to the sheet's questions: only questions it has, a choice only from its choices. */
 export function cleanAnswers(a, asks) {
@@ -135,7 +139,8 @@ export function cleanCopy(d, id) {
     if (!name) continue;
     seen.add(e.id);
     const ans = cleanAnswers(e.ans, sheet.asks);
-    entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at), ...(Object.keys(ans).length ? { ans } : {}) });
+    entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at), ...(Object.keys(ans).length ? { ans } : {}),
+      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}) });
   }
   return { id, key: d.key, sheet, sheetAt: num(d.sheetAt), entries, gone, changed: num(d.changed) };
 }
@@ -327,6 +332,7 @@ export class Sheet {
         // the answers to the organizer's questions: only the organizer and the person who gave them see them
         const ans = owner || isMine ? cleanAnswers(e.ans, d.sheet.asks) : undefined;
         return { id: e.id, row: e.row, name: show ? e.name : "", note: show ? e.note : "", mine: isMine, at: owner ? e.at : undefined, ans,
+          ...(qtyOf(e) > 1 ? { qty: qtyOf(e) } : {}),
           ...(waits.has(e.id) ? { wait: waits.get(e.id) } : {}) };
       }),
     };
@@ -406,15 +412,21 @@ export class Sheet {
       const owner = this.isOwner(req);
       const why = shut(d.sheet, row);
       if (why && !owner) return json({ error: why }, 409);
-      if (row.need && !d.sheet.wait && d.entries.filter((e) => e.row === row.id).length >= row.need) return json({ error: "full" }, 409);
+      // how many spots: one, or (when the sheet lets people) up to what the line needs
+      let qty = d.sheet.qty ? Math.max(1, Math.min(MAX_QTY, Math.floor(Number(b?.qty)) || 1)) : 1;
+      if (row.need) qty = Math.min(qty, row.need);
+      const taken = d.entries.filter((e) => e.row === row.id).reduce((n, e) => n + qtyOf(e), 0);
+      if (row.need && !d.sheet.wait && taken + qty > row.need) return json({ error: taken >= row.need ? "full" : "few" }, 409);
+      const token = isId(b?.token, 16, 32) ? b.token : randomToken(20);
+      // pinned: the most one person may take (SignUpGenius' quantity limits); the organizer adding someone is not held to it
+      if (!owner && mostFor(d.sheet, row, d.entries.filter((e) => e.token === token)) < qty) return json({ error: "limit" }, 409);
       if (d.entries.length >= MAX_ENTRIES) return json({ error: "full" }, 409);
       const asks = d.sheet.asks || [];
       const ans = cleanAnswers(b?.ans, asks);
       // pinned: a required question must be answered, except when the organizer adds someone
       if (!owner && asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
-      const token = isId(b?.token, 16, 32) ? b.token : randomToken(20);
       d.entries.push({ id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: Date.now(),
-        ...(Object.keys(ans).length ? { ans } : {}) });
+        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}) });
       await this.save();
       return json({ token, view: this.view(withToken(req, token)) });
     }
@@ -438,8 +450,8 @@ export class Sheet {
   }
 }
 
-/** Who is waiting, and where in line (1 = next): on a line with a number, everyone after the first that many, in the
- * order they signed up. Worked out from the sign-ups each time, so leaving, a bigger number, or the two servers' copies
+/** Who is waiting, and where in line (1 = next): on a line with a number, in the order they signed up, the first ones
+ * whose spots fit are in and everyone from the first that doesn't fit on waits (so nobody skips the line). Worked out from the sign-ups each time, so leaving, a bigger number, or the two servers' copies
  * coming together all move people in by themselves, the same way on both servers. */
 export function waitingOf(d) {
   const out = new Map();
@@ -450,7 +462,11 @@ export function waitingOf(d) {
   }
   for (const r of d.sheet.rows) {
     if (r.heading || !r.need) continue;
-    (byRow.get(r.id) || []).slice(r.need).forEach((e, i) => out.set(e.id, i + 1));
+    let used = 0, n = 0;
+    for (const e of byRow.get(r.id) || []) {
+      if (!n && used + qtyOf(e) <= r.need) used += qtyOf(e);
+      else out.set(e.id, ++n);
+    }
   }
   return out;
 }

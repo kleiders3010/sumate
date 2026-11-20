@@ -155,3 +155,9 @@ body.embed .toast { position: absolute; bottom: auto; top: var(--toastAt, 24px);
 .people.waiting .wlabel { font-size: 13px; color: var(--muted); margin-right: 2px; }
 .people.waiting .person { background: transparent; border: 1px dashed var(--line, #cfc8b8); }
 .people.waiting .person.me { background: var(--mine); border-style: solid; }
+
+/* more than one spot in a sign-up */
+.person .qty { font-weight: 700; margin-left: 4px; }
+.qtyrow { display: flex; align-items: center; gap: 12px; }
+.qtyrow .lbl { margin: 0; }
+.qtyrow input { width: 88px; }

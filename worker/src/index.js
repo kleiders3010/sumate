@@ -200,6 +200,21 @@ export default {
     const url = new URL(req.url);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (url.pathname === "/health" || url.pathname === "/api/health") return json({ ok: true });
+    // per address, the same as the game host's copy (kinetic/server.mjs; safety round 2, J7 swept here): 30 new sheets
+    // and 300 changes a minute (wrangler.toml NEWS, WRITES). The other server's copies (/api/sync) carry their own key.
+    const writing = req.method !== "GET" && !url.pathname.startsWith("/api/sync/");
+    if (writing && (env.WRITES || env.NEWS)) {
+      const net = await netKey(req.headers.get("CF-Connecting-IP"));
+      const over = async (lim) => {
+        try {
+          return lim && !(await lim.limit({ key: net })).success;
+        } catch (_) {
+          return false;
+        }
+      };
+      if ((await over(env.WRITES)) || (url.pathname === "/api/sheets" && req.method === "POST" && (await over(env.NEWS))))
+        return new Response(null, { status: 429, headers: cors });
+    }
     if (url.pathname === "/api/sheets" && req.method === "POST") {
       const body = await readJson(req);
       const sheet = cleanSheet(body);
@@ -635,4 +650,18 @@ async function testPage(req, env) {
   const h = new Headers(r.headers);
   h.delete("content-length");
   return new Response(html, { status: r.status, headers: h });
+}
+
+// One home line is one address: IPv6 by its /64, IPv4 as itself; only a hash goes to the limit (safety round 2, J7/J9)
+function netOf(ip) {
+  ip = String(ip || "unknown").trim().replace(/^::ffff:(?=\d+\.)/i, "");
+  if (!ip.includes(":")) return ip;
+  const [a, b = ""] = ip.split("%")[0].split("::");
+  const head = a ? a.split(":") : [], tail = b ? b.split(":") : [];
+  const all = ip.includes("::") ? [...head, ...Array(Math.max(0, 8 - head.length - tail.length)).fill("0"), ...tail] : head;
+  return all.slice(0, 4).map((x) => (parseInt(x, 16) || 0).toString(16)).join(":") + "::/64";
+}
+async function netKey(ip) {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("sumate-net|" + netOf(ip)));
+  return [...new Uint8Array(h).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

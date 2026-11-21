@@ -2,6 +2,8 @@
 # into every app), headless Edge. Grows with each fix.
 # J15: the test switches in the link (?server=, ?server2=) reach this computer only when the page itself is served from
 #      this computer; the shipped pages' CSP has no localhost (the test server adds it).
+# J7:  the Worker limits new sheets (30) and changes (300) per address per minute, like the game host's copy. This
+#      check uses up this computer's new-sheet allowance for a minute: run it after the other tests.
 # Run against the TEST server: npx wrangler dev -c wrangler.test.toml --port 8790, then python safety2_test.py [base-url]
 import os
 import re
@@ -63,6 +65,21 @@ with sync_playwright() as p:
     home = tried_from(BASE)
     check(any(LOCAL.search(u) for u in home), f"J15 a page on this computer still takes them (tests rely on it; tried: {sorted(set(home))[:4]})")  # pinned: safety round 2 J15
     b.close()
+
+# J7: the 31st new sheet in a minute from one address is turned away before anything is made
+import urllib.error
+import urllib.request
+codes = []
+for _ in range(31):
+    try:
+        urllib.request.urlopen(urllib.request.Request(BASE + "/api/sheets", data=b"{}", method="POST", headers={"Content-Type": "application/json"}), timeout=10)
+        codes.append(200)
+    except urllib.error.HTTPError as e:
+        codes.append(e.code)
+check(429 not in codes[:30] and codes[30] == 429, f"J7 at most 30 new sheets a minute per address ({codes[-3:]})")  # pinned: safety round 2 J7
+for f in ("wrangler.toml", "wrangler.test.toml"):
+    t = open(os.path.join(WEB, "..", "worker", f), encoding="utf-8").read()
+    check('name = "NEWS"' in t and 'name = "WRITES"' in t, f"J7 {f} has the NEWS and WRITES limits")  # pinned: safety round 2 J7
 
 print("\n" + ("ALL OK" if not errors else f"{len(errors)} FAILED:\n" + "\n".join(errors)))
 sys.exit(1 if errors else 0)

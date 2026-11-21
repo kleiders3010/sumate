@@ -99,14 +99,18 @@ async function copy(text) {
 // Every sheet is kept on two servers that copy each other (Kleider: "all parts of the app should work even if one
 // the pieces break down"): this site's own (Cloudflare) and the game host's (games.jurisgames.com/sumate). When one
 // doesn't answer, the app asks the other, and stays with the one that answered.
-// Test switches (?server= etc.) take only our own hosts, this computer, or addresses that can never connect (.invalid,
-// for failover tests): a crafted link can never point the app at somebody else's server (APP-RULES safety 1).
+// Test switches (?server= etc.) take only our own hosts, or addresses that can never connect (.invalid, for failover
+// tests): a crafted link can never point the app at somebody else's server (APP-RULES safety 1). This computer
+// (localhost) only when the page itself is served from this computer, so a link to the real site can never make it
+// talk to something running on the visitor's own machine (safety round 2, J15). The shipped page's CSP has no
+// localhost either; the test server adds it (worker/wrangler.test.toml).
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/;
 const testHost = (u) => {
   try {
     const x = new URL(u);
     if (!/^(wss?|https?):$/.test(x.protocol)) return null;
     const h = x.hostname;
-    return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(h) || /(^|\.)jurisgames\.com$/.test(h) || /\.invalid$/.test(h) ? u : null;
+    return (LOCAL.test(h) && LOCAL.test(location.hostname)) || /(^|\.)jurisgames\.com$/.test(h) || /\.invalid$/.test(h) ? u : null;
   } catch { return null; }
 };
 const RP = new URLSearchParams(location.search);

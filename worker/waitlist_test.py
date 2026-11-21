@@ -2,7 +2,7 @@
 # "Join the waiting list"; people wait in the order they signed up; when someone leaves, the first one waiting is in by
 # itself and is told so on their page; everyone else moves up; a bigger number moves people in too; the download says
 # who is waiting. Without the switch a full line still refuses.
-#   python worker/waitlist_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/waitlist_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import csv
 import io
 import sys

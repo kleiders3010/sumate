@@ -3,7 +3,7 @@
 # switch on, the box asks How many (up to what's left and what that person may still take); the line counts spots;
 # the chip says ×2; a person at their limit can't add more (the server refuses it too), the organizer still can; a
 # waiting list keeps people in order by their spots; the download has a How many column. Off by default.
-#   python worker/qty_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/qty_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import csv
 import io
 import sys

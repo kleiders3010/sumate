@@ -61,7 +61,7 @@ at all shows the device's last copy of the sheet, read only.
 servers.
 
 ## Run locally
-    cd worker && npm ci && npx wrangler dev --port 8790   (npm ci: the wrangler version the Worker is deployed with, worker/package.json)
+    cd worker && npm ci && npx wrangler dev -c wrangler.test.toml --port 8790   (npm ci: the wrangler version the Worker is deployed with, worker/package.json)
     # open http://127.0.0.1:8790
     node test.mjs              # checks on what the server accepts
     node cal_test.mjs          # days, times and time zones; the .ics file and calendar links

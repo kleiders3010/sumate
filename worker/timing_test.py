@@ -2,7 +2,7 @@
 # start/stop dates and "lock before the event"). The organizer sets them in the editor; Ana, on a small phone, can't
 # sign up before it opens, sees when it closes, and once it is closed on a final sheet can't remove herself (the
 # organizer still can). Both servers refuse the same way (they run the same code: test.mjs and failover_test.py).
-#   python worker/timing_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/timing_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import json
 import sys
 import time

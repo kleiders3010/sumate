@@ -1,7 +1,7 @@
 # The organizer's own questions on signing up (like SignUpGenius' custom questions): a pick-one question that must be
 # answered and a written one that may be left empty. A person can't sign up without the required answer; the answers go
 # to the organizer (on the sheet and in the downloaded list) and to the person who gave them, never to the others.
-#   python worker/questions_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/questions_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import csv
 import io
 import sys

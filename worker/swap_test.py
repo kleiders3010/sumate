@@ -2,7 +2,7 @@
 # available slot", and the organizer's Move Selected, where "their original information carries over"): ✎ on your
 # chip opens your sign-up to change the name, note, answers, how many, or the line, onto one with room; the organizer
 # changes anyone's, and moves someone onto a full line by trading places with a person there.
-#   python worker/swap_test.py [site] [shots-folder]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/swap_test.py [site] [shots-folder]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import os
 import sys
 sys.stdout.reconfigure(encoding='utf-8')

@@ -1,0 +1,29 @@
+# TESTS ONLY, never deployed: npx wrangler dev -c wrangler.test.toml --port 8790
+# Same as wrangler.toml, but every request passes the Worker, which adds this computer to the pages' CSP
+# (the shipped pages have no localhost in it: safety round 2, J15).
+# Sumate: the web app (static files) and its sign-up sheets (one Durable Object per sheet), one Worker.
+# Free plan: SQLite-backed Durable Objects, static assets.
+name = "sumate-test"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+[assets]
+directory = "../web"
+not_found_handling = "single-page-application"
+run_worker_first = true
+binding = "ASSETS"
+
+# The second sheet server (kinetic/server.mjs on the game host): every sheet is copied there. SYNC_KEY, the key both
+# share, is a secret (wrangler secret put SYNC_KEY, from C:/AI/Secrets/sumate-sync-key).
+[vars]
+TEST_LOCAL_CSP = "1"
+PEER = "https://games.jurisgames.com/sumate"
+
+[[durable_objects.bindings]]
+name = "SHEETS"
+class_name = "Sheet"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sheet"]

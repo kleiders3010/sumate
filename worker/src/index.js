@@ -216,6 +216,7 @@ export default {
     }
     const m = url.pathname.match(/^\/api\/(sheets|sync)\/([a-z0-9]{10})(\/.*)?$/);
     if (m) return env.SHEETS.get(env.SHEETS.idFromName(m[2])).fetch(req);
+    if (env.TEST_LOCAL_CSP === "1" && env.ASSETS) return testPage(req, env);
     return new Response("not found", { status: 404, headers: cors });
   },
 };
@@ -622,4 +623,16 @@ function withToken(req, token) {
   const have = (h.get("X-Sign-Tokens") || "").split(",").filter(Boolean);
   h.set("X-Sign-Tokens", [...have, token].join(","));
   return new Request(req.url, { headers: h });
+}
+
+const LOCAL_CSP = " http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*";
+// tests only (wrangler.test.toml: every request passes the Worker): the pages as shipped, plus this computer in their
+// CSP so test servers on other local ports can be reached (safety round 2, J15). Never set when deployed.
+async function testPage(req, env) {
+  const r = await env.ASSETS.fetch(req);
+  if (!(r.headers.get("content-type") || "").includes("text/html")) return r;
+  const html = (await r.text()).replace(/(connect-src [^;"]*)/, (m) => m + LOCAL_CSP);
+  const h = new Headers(r.headers);
+  h.delete("content-length");
+  return new Response(html, { status: r.status, headers: h });
 }

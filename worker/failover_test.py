@@ -4,7 +4,7 @@
 # deleted, and with no server at all the device shows its last copy to read (and goes live again by itself).
 # Both sheet servers here are kinetic/server.mjs copying to each other (one standing in for Cloudflare), so the test
 # can kill and restart them; the page comes from the Worker (wrangler dev).
-#   cd worker && npx wrangler dev --port 8790   then   python worker/failover_test.py
+#   cd worker && npx wrangler dev -c wrangler.test.toml --port 8790   then   python worker/failover_test.py
 import json
 import os
 import subprocess

@@ -4,7 +4,7 @@
 # that can be replaced or turned off, someone who just came (added and checked in at once, extra on a full line), the
 # sheet's switch for people to check themselves in from the line's day, who came is not shown to everyone, and the
 # download has a Checked in column.
-#   python worker/checkin_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/checkin_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import csv
 import io
 import sys

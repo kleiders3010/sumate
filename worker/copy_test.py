@@ -1,7 +1,7 @@
 # Copy a sheet (like SignUpGenius' "duplicate"): the organizer makes next week's sheet from this one. The copy has the
 # same lines, times and questions, nobody signed up on it, its own link, and every day can move a week at once. The
 # original keeps its people.
-#   python worker/copy_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/copy_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import json
 import sys
 import urllib.request

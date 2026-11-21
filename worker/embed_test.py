@@ -2,7 +2,7 @@
 # it, or a button), like SignUpGenius' "share on website". The code is pasted into a page on another origin; on a
 # small phone the iframe takes the sheet's height, has no app bar, the sign-up box opens next to the tapped line,
 # and signing up works from inside it.
-#   python worker/embed_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/embed_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import json
 import sys
 import threading

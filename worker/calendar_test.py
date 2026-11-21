@@ -1,7 +1,7 @@
 # A day and time on lines, and "Add to my calendar" (like SignUpGenius' dates/times, "Add Time Slots", and the Google /
 # Outlook / iCal buttons after signing up). The organizer is in Buenos Aires; Ana, on a small phone, is in Madrid: she
 # sees the times as written with "Buenos Aires time", and her calendar gets the right moment.
-#   python worker/calendar_test.py [site]   (local: cd worker && npx wrangler dev --port 8790)
+#   python worker/calendar_test.py [site]   (local: cd worker && npx wrangler dev -c wrangler.test.toml --port 8790)
 import csv
 import io
 import sys

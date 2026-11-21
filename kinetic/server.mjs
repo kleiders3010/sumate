@@ -33,6 +33,16 @@ const NEW_PER_MINUTE = 30; // sheets one address may make in a minute
 const WRITES_PER_MINUTE = 300; // changes one address may make in a minute
 mkdirSync(DATA, { recursive: true });
 
+// What the sweep needs to know of each room file on disk: read once at start, then kept up to date on every write,
+// so the sweep never re-reads the folder (APP-RULES safety 14: work proportional to what changed).
+const MAX_FILES = 50000; // the data folder shares a disk with the other games: no new rooms past this
+const disk = new Map(); // file -> { name, alarm, ... }
+const summary = (m) => ({ name: m.__name || "", alarm: Number(m.__alarm) || 0, pending: !!(m.d && m.d.sent !== m.d.v) });
+for (const f of readdirSync(DATA)) {
+  if (!f.endsWith(".json")) continue;
+  try { disk.set(join(DATA, f), summary(JSON.parse(readFileSync(join(DATA, f), "utf8")))); } catch (_) {}
+}
+
 let key = process.env.SYNC_KEY || "";
 if (!key) try { key = readFileSync(join(DATA, "sync-key"), "utf8").trim(); } catch (_) {}
 
@@ -60,9 +70,14 @@ class Storage {
   flush() {
     clearTimeout(this.timer);
     try {
-      if (!this.map.size) return void unlinkSync(this.file);
-      writeFileSync(this.file + ".tmp", JSON.stringify({ __name: this.name, ...Object.fromEntries(this.map) }));
+      if (!this.map.size) {
+        disk.delete(this.file);
+        return void unlinkSync(this.file);
+      }
+      const all = { __name: this.name, ...Object.fromEntries(this.map) };
+      writeFileSync(this.file + ".tmp", JSON.stringify(all));
       renameSync(this.file + ".tmp", this.file);
+      disk.set(this.file, summary(all));
     } catch (_) {}
   }
   async get(k) {
@@ -144,12 +159,10 @@ async function sweep(force) {
     }
   }
   if (force) return;
-  for (const f of readdirSync(DATA)) {
-    if (!f.endsWith(".json")) continue;
+  for (const s of [...disk.values()]) {
+    if (!s.name || held.has(s.name)) continue;
     try {
-      const m = JSON.parse(readFileSync(join(DATA, f), "utf8"));
-      if (!m.__name || held.has(m.__name)) continue;
-      if (m.__alarm && m.__alarm <= now) await fire(sheetOf(m.__name));
+      if (s.alarm && s.alarm <= now) await fire(sheetOf(s.name));
     } catch (_) {}
   }
 }
@@ -165,13 +178,7 @@ async function kick() {
   kicked = Date.now();
   const pending = (m) => !!(m && m.d) && m.d.sent !== m.d.v;
   for (const h of held.values()) if (pending({ d: h.storage.map.get("d") })) fire(h);
-  for (const f of readdirSync(DATA)) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const m = JSON.parse(readFileSync(join(DATA, f), "utf8"));
-      if (m.__name && !held.has(m.__name) && pending(m)) fire(sheetOf(m.__name));
-    } catch (_) {}
-  }
+  for (const s of [...disk.values()]) if (s.name && !held.has(s.name) && s.pending) fire(sheetOf(s.name));
 }
 
 const started = Date.now();
@@ -194,7 +201,7 @@ const server = http.createServer(async (req, res) => {
   }
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").split(",")[0].trim();
   const writing = req.method !== "GET" && req.method !== "OPTIONS" && !path.startsWith("/api/sync/");
-  if ((path === "/api/sheets" && req.method === "POST" && over("new", ip, NEW_PER_MINUTE)) || (writing && over("write", ip, WRITES_PER_MINUTE))) {
+  if ((path === "/api/sheets" && req.method === "POST" && (disk.size >= MAX_FILES || over("new", ip, NEW_PER_MINUTE))) || (writing && over("write", ip, WRITES_PER_MINUTE))) {
     res.writeHead(429, cors);
     return res.end();
   }

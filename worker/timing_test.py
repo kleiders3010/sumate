@@ -10,6 +10,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 sys.stdout.reconfigure(encoding='utf-8')
+from sheettok import sheet_token  # the per-sheet code a device sends (round 3, S5)
 from playwright.sync_api import sync_playwright
 
 SITE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8790"
@@ -116,7 +117,7 @@ with sync_playwright() as p:
     check(ana.inner_text("#closedNote") != note and ana.locator("#srows .join").count() == 0,
           "once closed the page says so by itself")
     check(ana.locator("#srows .person.me .x").count() == 0, "a final list: no removing herself")
-    tok = ana.evaluate("localStorage.getItem('sumate.token')") or ""
+    tok = sheet_token(ana.evaluate("localStorage.getItem('sumate.token')") or "", sid)
     st, v = call("GET", f"/api/sheets/{sid}", headers={"X-Sign-Tokens": tok})
     mine = [e for e in v["entries"] if e.get("mine")]
     st, r = call("DELETE", f"/api/sheets/{sid}/signups/{mine[0]['id'] if mine else 'zzzzzzzz'}", headers={"X-Sign-Tokens": tok})

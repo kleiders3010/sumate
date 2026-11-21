@@ -28,9 +28,10 @@ const BIND = process.env.BIND || "127.0.0.1"; // behind the game host's door onl
 const DATA = process.env.DATA_DIR || join(process.cwd(), "data");
 const MAX_HELD = 2000; // sheets held in memory at once (the rest stay on disk)
 const IDLE_MS = 10 * 60 * 1000;
-const MAX_BODY = 1024 * 1024 + 1024;
+const MAX_BODY = worker.sizes().MAX_SYNC + 1024; // the biggest copy the other server sends (one budget for every hop, round 3 S2)
 const NEW_PER_MINUTE = 30; // sheets one address may make in a minute
 const WRITES_PER_MINUTE = 300; // changes one address may make in a minute
+const READS_PER_MINUTE = 120; // reads of a sheet one address may make in a minute (round 3, S3; the Worker's READS)
 mkdirSync(DATA, { recursive: true });
 // how busy this server is goes only to whoever has the ops key (data/ops-key; the deploy's "is anyone online?"),
 // everyone else hears "ok" (audit R17)
@@ -79,25 +80,34 @@ class Storage {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), 200);
   }
-  flush() {
+  /** Writes the file now. A failed write is said (a line in the log, and an error to whoever asked when `loud`), never
+   * answered as saved (round 3, S10): the app then uses the other server. */
+  flush(loud = false) {
     clearTimeout(this.timer);
     try {
       if (!this.map.size) {
         disk.delete(this.file);
-        return void unlinkSync(this.file);
+        try { unlinkSync(this.file); } catch (e) { if (e.code !== "ENOENT") throw e; }
+        return;
       }
       const all = { __name: this.name, ...Object.fromEntries(this.map) };
       writeFileSync(this.file + ".tmp", JSON.stringify(all));
       renameSync(this.file + ".tmp", this.file);
       disk.set(this.file, summary(all));
-    } catch (_) {}
+    } catch (e) {
+      console.error("sumate: writing a sheet failed:", e && e.message);
+      if (loud) throw new Error("not saved");
+    }
   }
   async get(k) {
     return clone(this.map.get(k));
   }
   async put(k, v) {
+    // the file cap holds for every way a sheet arrives here: made here, copied from the other server, or fetched from it
+    if (!disk.has(this.file) && disk.size >= MAX_FILES) throw new Error("full");
     this.map.set(k, clone(v));
-    this.save();
+    if (k === "d") this.flush(true);
+    else this.save();
   }
   async deleteAll() {
     this.map.clear();
@@ -212,11 +222,21 @@ const server = http.createServer(async (req, res) => {
     if (!isOps(req)) return res.end(JSON.stringify({ ok: true }));
     return res.end(JSON.stringify({ ok: true, sheets: held.size, peer: !!(ENV.PEER && ENV.SYNC_KEY), upMinutes: Math.round((Date.now() - started) / 60000) }));
   }
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").split(",")[0].trim();
+  // the visitor's address as the host's door states it; one home line is one address (IPv6 by its /64, as on the
+  // Worker: round 3, S10)
+  const addr = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").split(",")[0].trim();
+  const ip = worker.netOf(addr);
   const writing = req.method !== "GET" && req.method !== "OPTIONS" && !path.startsWith("/api/sync/");
-  if ((path === "/api/sheets" && req.method === "POST" && (disk.size >= MAX_FILES || over("new", ip, NEW_PER_MINUTE))) || (writing && over("write", ip, WRITES_PER_MINUTE))) {
-    res.writeHead(429, cors);
-    return res.end();
+  const reading = req.method === "GET" && path.startsWith("/api/sheets/");
+  if (path === "/api/sheets" && req.method === "POST" && disk.size >= MAX_FILES) {
+    // full here is not the visitor's doing: an error, so the app makes the sheet on the other server
+    res.writeHead(503, { "content-type": "application/json", ...cors });
+    return res.end(JSON.stringify({ error: "offline" }));
+  }
+  if ((path === "/api/sheets" && req.method === "POST" && over("new", ip, NEW_PER_MINUTE)) || (writing && over("write", ip, WRITES_PER_MINUTE))
+    || (reading && over("read", ip, READS_PER_MINUTE))) {
+    res.writeHead(429, { "content-type": "application/json", ...cors });
+    return res.end(JSON.stringify({ error: "slow" }));
   }
   const chunks = [];
   let size = 0;
@@ -231,6 +251,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
+    headers.set("cf-connecting-ip", addr); // what the sheet code counts by: the address the door stated, not one a visitor sends
     const body = chunks.length && req.method !== "GET" && req.method !== "HEAD" ? Buffer.concat(chunks) : undefined;
     const r = await worker.default.fetch(new Request("http://sumate" + (req.url || "/"), { method: req.method, headers, body }), ENV);
     const out = {};
@@ -240,8 +261,8 @@ const server = http.createServer(async (req, res) => {
     res.end(Buffer.from(await r.arrayBuffer()));
   } catch (e) {
     console.error("sumate error:", e && e.message);
-    res.writeHead(500, cors);
-    res.end();
+    res.writeHead(503, { "content-type": "application/json", ...cors }); // not saved here: the app tries the other server
+    res.end(JSON.stringify({ error: "offline" }));
   }
 });
 

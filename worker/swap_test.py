@@ -6,6 +6,7 @@
 import os
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
+from sheettok import sheet_token  # the per-sheet code a device sends (round 3, S5)
 from playwright.sync_api import sync_playwright
 
 SITE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8790"
@@ -97,8 +98,9 @@ with sync_playwright() as p:
     dis = ana.evaluate(f"document.querySelector('#signLine option[value=\"{kitchen}\"]').disabled")
     check(dis, "a full line can't be picked")  # pinned: a person moves only onto room
     ana.click("#signCancel")
-    tok_a = ana.evaluate("localStorage['sumate.token']")
-    tok_b = beto.evaluate("localStorage['sumate.token']")
+    secret_a = ana.evaluate("localStorage['sumate.token']")
+    tok_a = sheet_token(secret_a, sid)
+    tok_b = sheet_token(beto.evaluate("localStorage['sumate.token']"), sid)
     aid = next(e["id"] for e in v["entries"] if e["name"] == "Ana")
     bid = o.evaluate(API, [f"/api/sheets/{sid}", "GET", None, None])[1]["entries"][1]["id"]
     st = beto.evaluate(API, [f"/api/sheets/{sid}/signups/{aid}", "POST", {"note": "x"}, {"X-Sign-Tokens": tok_b}])
@@ -170,7 +172,7 @@ with sync_playwright() as p:
     es = page("es-AR")
     es.goto(link)
     es.wait_for_selector("#srows .person")
-    es.evaluate(f"localStorage['sumate.token'] = {tok_a!r}")
+    es.evaluate(f"localStorage['sumate.token'] = {secret_a!r}")
     es.reload()
     es.wait_for_selector("#srows .person.me .ed")
     check(es.get_attribute("#srows .person.me .ed", "title") not in ("", "Change my sign-up"), "in Spanish too")

@@ -135,6 +135,21 @@ const DICT = {
     "Turn it off": "Desactivarlo",
     "Check-in link ready": "Enlace de asistencia listo",
     "Check-in link turned off": "Enlace de asistencia desactivado",
+    "New organizer link (the old one stops working)": "Enlace de organizador nuevo (el anterior deja de andar)",
+    "Tap again: the old organizer link stops working": "Tocá de nuevo: el enlace de organizador anterior deja de andar",
+    "New organizer link ready. Keep it private.": "Enlace de organizador nuevo listo. No lo compartas.",
+    "This organizer link doesn't work (any more). Ask whoever made the sheet.": "Este enlace de organizador no anda (o ya no). Pedíselo a quien hizo la lista.",
+    "Remove recent sign-ups": "Quitar anotaciones recientes",
+    "Signed up in": "Anotados",
+    "in the last hour": "en la última hora",
+    "in the last 6 hours": "en las últimas 6 horas",
+    "in the last day": "en el último día",
+    "Remove {n} sign-ups": "Quitar {n} anotaciones",
+    "Tap again to remove {n} sign-ups for everyone": "Tocá de nuevo para quitar {n} anotaciones para todos",
+    "Removed {n} sign-ups": "Se quitaron {n} anotaciones",
+    "This sheet is as big as it can get. The organizer can remove sign-ups to make room.": "Esta lista llegó a su tamaño máximo. Quien la organiza puede quitar anotaciones para hacer lugar.",
+    "Many sign-ups from this network in the last hour. Try again later.": "Hubo muchas anotaciones desde esta red en la última hora. Probá más tarde.",
+    "Too many tries. Wait a minute and try again.": "Demasiados intentos. Esperá un minuto y probá de nuevo.",
     "Find a name or a line": "Buscá un nombre o una línea",
     "Nobody by that name.": "No hay nadie con ese nombre.",
     "Someone who just came: added and checked in.": "Alguien que vino sin anotarse: queda anotado y presente.",
@@ -238,7 +253,7 @@ function pick() {
   if (asked && known(baseOf(asked))) {
     try { localStorage.setItem("sumate.lang", baseOf(asked)); } catch {}
   }
-  const want = [asked, safeGet("sumate.lang") || safeGet("lang"), ...(navigator.languages || [navigator.language])].filter(Boolean);
+  const want = [asked, safeGet("sumate.lang"), ...(navigator.languages || [navigator.language])].filter(Boolean);
   for (const l of want) if (known(baseOf(l))) return baseOf(l);
   return "en";
 }
@@ -252,7 +267,7 @@ const table = LANG !== "en" && Object.hasOwn(DICT, LANG) ? DICT[LANG] : {};
 
 /** t("{name} left", { name }) -> the text in the UI language, placeholders filled. */
 export function t(text, vars) {
-  let s = table[text] ?? text;
+  let s = Object.hasOwn(table, text) ? table[text] : text;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
   return s;
 }
@@ -271,7 +286,7 @@ export function translatePage(root = document) {
     const core = s.replace(/\s*·\s*$/, "");
     if (table[core]) n.nodeValue = raw.replace(core, table[core]);
   }
-  for (const el of (root.body || root).querySelectorAll("[title],[placeholder]")) {
-    for (const a of ["title", "placeholder"]) if (el.hasAttribute(a)) el.setAttribute(a, t(el.getAttribute(a)));
+  for (const el of (root.body || root).querySelectorAll("[title],[placeholder],[aria-label]")) {
+    for (const a of ["title", "placeholder", "aria-label"]) if (el.hasAttribute(a)) el.setAttribute(a, t(el.getAttribute(a)));
   }
 }

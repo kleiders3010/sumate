@@ -7,6 +7,9 @@ const BASE = new URL(".", import.meta.url).pathname;
 const here = () => "/" + location.pathname.slice(BASE.length); // the app's own path ("/s/abc...")
 // on someone else's page in an iframe (the share box's website code adds ?embed; go() keeps it)
 const EMBED = new URLSearchParams(location.search).has("embed");
+// inside any other page's frame the app is a visitor, whatever this browser holds: no organizer or check-in key is
+// sent and nothing that edits or deletes is offered (safety round 3, S9; APP-RULES safety)
+const FRAMED = (() => { try { return window.top !== window.self; } catch { return true; } })();
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, text) => {
@@ -31,16 +34,33 @@ function deviceToken() {
   }
   return tok;
 }
-const TOKEN = deviceToken();
+// The device's secret. Each sheet gets its own code made from it (safety round 3, S5: one code for every sheet let
+// whoever reads the servers join one person's sign-ups across sheets). Sign-ups from before carry the secret itself:
+// on those sheets it is sent too (X-Sign-Old) until the server says none are left.
+const SECRET = deviceToken();
+const tokens = new Map();
+async function tokenFor(id) {
+  if (tokens.has(id)) return tokens.get(id);
+  let tok = SECRET;
+  try {
+    const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode("sumate-sheet|" + id)));
+    tok = [...sig.slice(0, 20)].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+  } catch {}
+  tokens.set(id, tok);
+  return tok;
+}
 
 function mySheets() {
   try { return JSON.parse(safeGet("sumate.sheets") || "[]").filter((s) => s && s.id); } catch { return []; }
 }
 function rememberSheet(id, patch) {
   const all = mySheets();
-  const old = all.find((s) => s.id === id) || { id };
-  const next = { ...old, ...patch, seen: Date.now() };
-  const v = JSON.stringify([next, ...all.filter((s) => s.id !== id)].slice(0, 100));
+  const had = all.find((s) => s.id === id);
+  // a sheet first kept from now on has only this sheet's code on it (t2: no old code to send)
+  const next = { ...(had || { id, t2: 1 }), ...patch, seen: Date.now() };
+  // the newest 100, and every sheet this device holds a key for: opening other sheets never pushes a key out (S1)
+  const v = JSON.stringify([next, ...all.filter((s) => s.id !== id)].filter((s, i) => i < 100 || s.key || s.door));
   // the organizer's key matters more than the offline copies: a full storage gives those up first (audit R13)
   if (safeSet("sumate.sheets", v)) return;
   try { localStorage.removeItem("sumate.copies"); } catch {}
@@ -50,8 +70,8 @@ function rememberSheet(id, patch) {
 function forgetSheet(id) {
   safeSet("sumate.sheets", JSON.stringify(mySheets().filter((s) => s.id !== id)));
 }
-const keyFor = (id) => mySheets().find((s) => s.id === id)?.key || "";
-const doorFor = (id) => mySheets().find((s) => s.id === id)?.door || ""; // a helper's check-in link
+const keyFor = (id) => (FRAMED ? "" : mySheets().find((s) => s.id === id)?.key || "");
+const doorFor = (id) => (FRAMED ? "" : mySheets().find((s) => s.id === id)?.door || ""); // a helper's check-in link
 
 function copies() {
   try { return JSON.parse(safeGet("sumate.copies") || "{}") || {}; } catch { return {}; }
@@ -123,11 +143,17 @@ const SERVERS = [
 let at = 0;
 try { at = Math.min(Number(sessionStorage.getItem("sumate.server")) || 0, SERVERS.length - 1); } catch {}
 
-async function api(path, opts = {}, id) {
-  const headers = { "X-Sign-Tokens": TOKEN };
-  const key = id && keyFor(id);
+// `as`: a key to try instead of the one kept (a link's, checked before it is kept: round 3, S1)
+async function api(path, opts = {}, id, as = null) {
+  const headers = {};
+  if (id) {
+    headers["X-Sign-Tokens"] = await tokenFor(id);
+    const s = mySheets().find((x) => x.id === id);
+    if (s && !s.t2) headers["X-Sign-Old"] = SECRET;
+  }
+  const key = as ? as.key : id && keyFor(id);
   if (key) headers["X-Sheet-Key"] = key;
-  const door = id && !key && doorFor(id);
+  const door = as ? as.door : id && !key && doorFor(id);
   if (door) headers["X-Door-Key"] = door;
   if (opts.body) headers["Content-Type"] = "application/json";
   let failed = { error: "offline" };
@@ -142,8 +168,12 @@ async function api(path, opts = {}, id) {
     } finally {
       clearTimeout(timer);
     }
+    // an answer that isn't the app's own (a platform's error or over-quota page, a cap that isn't this visitor's): the
+    // other server (round 3, S3). The app's own answers are JSON.
+    const own = (r.headers.get("content-type") || "").includes("application/json");
     let data = {};
     try { data = await r.json(); } catch {}
+    if (!r.ok && !own) { failed = { error: "offline", status: r.status }; continue; }
     if (r.status >= 500) { failed = { error: r.status === 503 ? "offline" : data.error || "error", status: r.status }; continue; }
     if (at !== i) { at = i; try { sessionStorage.setItem("sumate.server", String(i)); } catch {} }
     if (!r.ok) return { error: data.error || "error", status: r.status };
@@ -151,7 +181,8 @@ async function api(path, opts = {}, id) {
   }
   return failed;
 }
-const errText = (e) => ({
+const errText = (e) => errTexts()[Object.hasOwn(errTexts(), e) ? e : ""] ?? t("Something went wrong. Try again.");
+const errTexts = () => ({
   offline: t("No connection. Try again."),
   full: t("Someone just took the last spot."),
   few: t("There aren't that many spots left."),
@@ -164,7 +195,10 @@ const errText = (e) => ({
   gone: t("This sheet doesn't exist"),
   notday: t("You can check in from the day it happens."),
   waiting: t("Still on the waiting list: not in yet."),
-}[e] || t("Something went wrong. Try again."));
+  big: t("This sheet is as big as it can get. The organizer can remove sign-ups to make room."),
+  busy: t("Many sign-ups from this network in the last hour. Try again later."),
+  slow: t("Too many tries. Wait a minute and try again."),
+});
 
 // ---------- routing ----------
 const PAGES = ["home", "edit", "sheet", "door", "gone"];
@@ -189,8 +223,8 @@ function route() {
   const hk = location.hash.match(/^#([kd])=([a-z0-9]{24})$/); // #k= the organizer's, #d= a check-in helper's
   const m = p.match(/^\/s\/([a-z0-9]{10})(\/edit|\/copy|\/door)?$/);
   if (m && hk) {
-    rememberSheet(m[1], hk[1] === "k" ? { key: hk[2] } : { door: hk[2] });
     history.replaceState(null, "", location.pathname + location.search);
+    if (!FRAMED) return claimKey(m[1], hk[1], hk[2]).then(route);
   }
   if (m && m[2] === "/door") return openDoor(m[1]);
   if (p === "/new") return openEditor(null);
@@ -198,6 +232,20 @@ function route() {
   if (m && m[2]) return openEditor(m[1]);
   if (m) return openSheet(m[1]);
   return openHome();
+}
+
+/** A key from a link is kept only when the server takes it, and never over a key that still works (safety round 3,
+ * S1: a made-up #k= in a link wrote over the organizer's real key). With no server to ask it is kept only where
+ * there was no key to lose. */
+async function claimKey(id, kind, val) {
+  const s = mySheets().find((x) => x.id === id);
+  const has = kind === "k" ? s?.key : s?.door;
+  if (has === val) return;
+  const v = await api("/api/sheets/" + id, {}, id, kind === "k" ? { key: val } : { door: val });
+  const ok = kind === "k" ? v.owner : v.door;
+  if (ok) return rememberSheet(id, kind === "k" ? { key: val } : { door: val });
+  if (v.error && v.status !== 404 && !has) return rememberSheet(id, kind === "k" ? { key: val } : { door: val });
+  if (!v.error) toast(kind === "k" ? t("This organizer link doesn't work (any more). Ask whoever made the sheet.") : t("This check-in link was turned off or replaced. Ask the organizer for the new one."));
 }
 
 // ---------- home ----------
@@ -419,7 +467,7 @@ $("#addAsk").onclick = () => {
   $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
 };
 // the answers of one sign-up, in the order of the questions
-const answersOf = (e, asks) => (asks || []).map((q) => e.ans?.[q.id] || "");
+const answersOf = (e, asks) => (asks || []).map((q) => (e.ans && Object.hasOwn(e.ans, q.id) ? e.ans[q.id] : ""));
 
 // a copy (like SignUpGenius' "duplicate"): same lines, questions and settings, nobody signed up yet; the days can all
 // move by a week or so at once
@@ -567,18 +615,35 @@ async function openSheet(id, quiet = false) {
   if (moved) toast(t("A spot opened: you're in for {what}", { what: v.sheet.rows.find((r) => r.id === moved.row)?.text || "" }));
   showMsg("#sheetMsg", "");
   const known = mySheets().find((s) => s.id === id);
-  if (known || v.entries.some((e) => e.mine)) rememberSheet(id, { title: v.sheet.title });
+  if (known || v.entries.some((e) => e.mine)) rememberSheet(id, { title: v.sheet.title, ...(v.old === 0 ? { t2: 1 } : {}) });
   renderSheet();
   if (!quiet) {
     show("sheet");
     poll(id);
   }
 }
+// How often an open sheet asks for news (round 3, S3: every 8 s in every open tab spent Cloudflare's daily
+// allowance): every 8 s while things change, then every 20 s, then every minute once nothing has changed for 10
+// minutes; at once when the tab is shown again.
+let lastNews = 0, pollDue = 0;
+const pace = () => { const idle = Date.now() - lastNews; return idle < 2 * 60e3 ? 8000 : idle < 10 * 60e3 ? 20000 : 60000; };
+function pacer(fn) {
+  clearTimeout(pollTimer);
+  lastNews = Date.now();
+  pollDue = Date.now() + pace();
+  const tick = () => {
+    if (document.visibilityState === "visible" && Date.now() >= pollDue) {
+      pollDue = Date.now() + pace();
+      const before = current?.changed;
+      Promise.resolve(fn()).then(() => { if (current?.changed !== before) lastNews = Date.now(); });
+    }
+    pollTimer = setTimeout(tick, 1000);
+  };
+  pollTimer = setTimeout(tick, 1000);
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { lastNews = Date.now(); pollDue = 0; } });
 function poll(id) {
-  clearInterval(pollTimer);
-  pollTimer = setInterval(() => {
-    if (document.visibilityState === "visible" && $("#signBox").hidden) openSheet(id, true);
-  }, 8000);
+  pacer(() => { if ($("#signBox").hidden) return openSheet(id, true); });
 }
 
 function renderSheet() {
@@ -592,6 +657,9 @@ function renderSheet() {
   $("#sPlace").textContent = s.place ? "📍 " + s.place : "";
   $("#editBtn").hidden = !v.owner || !live;
   $("#ownerTools").hidden = !v.owner;
+  $("#cleanBtn").hidden = !live;
+  if (!v.owner || !live) $("#cleanWrap").hidden = true;
+  else if (!$("#cleanWrap").hidden) cleanLabel();
   const now = Date.now() + skew;
   const whole = shut(s, null, now);
   const note = $("#closedNote");
@@ -756,10 +824,7 @@ async function openDoor(id, quiet = false) {
   if (!quiet) { $("#dSearch").value = doorQuery = ""; show("door"); pollDoor(id); }
 }
 function pollDoor(id) {
-  clearInterval(pollTimer);
-  pollTimer = setInterval(() => {
-    if (document.visibilityState === "visible" && $("#signBox").hidden && document.activeElement?.classList?.contains("hereBtn") !== true) openDoor(id, true);
-  }, 8000);
+  pacer(() => { if ($("#signBox").hidden && document.activeElement?.classList?.contains("hereBtn") !== true) return openDoor(id, true); });
 }
 const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 function renderDoor() {
@@ -929,7 +994,7 @@ function openSign(r, walkUp = false, change = null) {
     f.id = "ask-" + q.id;
     f.dataset.ask = q.id;
     f.required = q.req && !current.owner && !walkUp; // the organizer (or the check-in) may add someone without the answers
-    if (change) f.value = change.ans?.[q.id] || "";
+    if (change) f.value = change.ans && Object.hasOwn(change.ans, q.id) ? change.ans[q.id] : "";
     box.append(lbl, f);
   }
   showMsg("#signMsg", "");
@@ -984,7 +1049,7 @@ $("#signForm").onsubmit = async (e) => {
     method: "POST",
     // its own id: sent again to the other server (no answer from the first), it is still one sign-up
     // a walk-up gets their own token: it isn't this device's sign-up
-    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: signHere ? signId() + signId() : TOKEN, qty: Number($("#signQty").value) || 1, here: signHere || undefined,
+    body: { id: signId(), row: signRow.id, name, note: $("#signNote").value, token: signHere ? signId() + signId() : await tokenFor(id), qty: Number($("#signQty").value) || 1, here: signHere || undefined,
       ans: askValues() },
   }, id);
   btn.disabled = false;
@@ -1108,6 +1173,61 @@ $("#doorOff").onclick = () => setDoor(false);
 $("#copyDoor").onclick = () => copy($("#doorLink").value);
 $("#copyLink").onclick = () => copy($("#shareLink").value);
 $("#copyOwner").onclick = () => copy($("#ownerLink").value);
+// a new organizer link (round 3, S7): for one shared by mistake. Two taps; the old one stops working everywhere.
+$("#keyNew").onclick = async () => {
+  const b = $("#keyNew");
+  if (!b.dataset.sure) {
+    b.dataset.sure = "1";
+    b.textContent = t("Tap again: the old organizer link stops working");
+    setTimeout(() => { delete b.dataset.sure; b.textContent = t("New organizer link (the old one stops working)"); }, 4000);
+    return;
+  }
+  delete b.dataset.sure;
+  b.textContent = t("New organizer link (the old one stops working)");
+  const id = current.id;
+  const r = await api(`/api/sheets/${id}/key`, { method: "POST" }, id);
+  if (r.error || !r.key) return toast(errText(r.error));
+  rememberSheet(id, { key: r.key });
+  current = r.view;
+  keepCopy(id, current);
+  openShare();
+  toast(t("New organizer link ready. Keep it private."));
+};
+
+// remove everyone who signed up in the last hour / 6 hours / day (round 3, S2: someone filled a sheet with made-up
+// sign-ups). Two taps; the organizer's own additions at the door are not touched.
+const recent = () => {
+  const since = Date.now() + skew - Number($("#cleanSpan").value) * 3600e3;
+  return (current?.entries || []).filter((e) => e.at && e.at >= since && !e.here);
+};
+function cleanLabel() {
+  const b = $("#cleanGo");
+  delete b.dataset.sure;
+  const n = recent().length;
+  b.textContent = t("Remove {n} sign-ups", { n });
+  b.disabled = !n;
+}
+$("#cleanBtn").onclick = () => { $("#cleanWrap").hidden = !$("#cleanWrap").hidden; cleanLabel(); };
+$("#cleanSpan").onchange = cleanLabel;
+$("#cleanGo").onclick = async () => {
+  const b = $("#cleanGo");
+  const ids = recent().map((e) => e.id);
+  if (!ids.length) return;
+  if (!b.dataset.sure) {
+    b.dataset.sure = "1";
+    b.textContent = t("Tap again to remove {n} sign-ups for everyone", { n: ids.length });
+    setTimeout(() => { if (b.dataset.sure) cleanLabel(); }, 4000);
+    return;
+  }
+  const id = current.id;
+  const r = await api(`/api/sheets/${id}/signups/remove`, { method: "POST", body: { ids } }, id);
+  if (r.error) return toast(errText(r.error));
+  current = r;
+  keepCopy(id, r);
+  $("#cleanWrap").hidden = true;
+  renderSheet();
+  toast(t("Removed {n} sign-ups", { n: ids.length }));
+};
 $("#nativeShare").onclick = () => {
   const s = current?.sheet;
   navigator.share({ title: s?.title || "Sumate", text: s?.title, url: $("#shareLink").value }).catch(() => {});

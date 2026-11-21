@@ -38,3 +38,10 @@ simple = { limit = 30, period = 60 }
 name = "WRITES"
 namespace_id = "2104"
 simple = { limit = 300, period = 60 }
+
+# reads of a sheet, per address (safety round 3, S3): each one wakes a billed sheet; an open tab asks at most
+# every 8 s (8 a minute), so 120 is many tabs on one home line
+[[ratelimits]]
+name = "READS"
+namespace_id = "2105"
+simple = { limit = 120, period = 60 }

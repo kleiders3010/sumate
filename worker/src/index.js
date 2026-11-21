@@ -18,7 +18,17 @@ const MAX_ROWS = 200;
 const MAX_ENTRIES = 3000;
 const MAX_GONE = 3000;
 const MAX_BODY = 64 * 1024;
-const MAX_SYNC = 1024 * 1024; // a whole sheet with its sign-ups
+// One size budget from door to disk (safety round 3, S2), all in bytes: a sheet takes no change that makes it bigger
+// than MAX_BYTES; two such copies merged (each server took changes while the copies were apart) still fit MAX_SYNC,
+// the copy the other server accepts (kinetic/server.mjs reads the same number), and that fits Cloudflare's 2 MB per
+// stored value.
+const MAX_BYTES = 500 * 1024;
+const MAX_SYNC = 1536 * 1024;
+// (a module of a Worker may export only functions and classes)
+export const sizes = () => ({ MAX_BYTES, MAX_SYNC });
+// sign-ups one network may add to one sheet in an hour (the organizer and check-in helpers are not counted)
+const PER_NET_HOUR = 100;
+const AHEAD_MS = 5 * 60e3; // a time from the other server more than this ahead of this one's clock is taken as now + this
 // the organizer's own questions on signing up (like SignUpGenius' custom questions): a short answer or one of a few
 // choices, each required or not; the answers go to the organizer (and the person who gave them), never to everyone
 const MAX_ASKS = 5;
@@ -41,10 +51,20 @@ const cors = {
   "Cache-Control": "no-store",
   "Access-Control-Allow-Origin": "*", // the copy of the site on GitHub Pages, and the app on either server
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE",
-  "Access-Control-Allow-Headers": "Content-Type, X-Sheet-Key, X-Sign-Tokens",
+  // every header the app sends, or the browser refuses it on the cross-site way to the other server (round 3, S8)
+  "Access-Control-Allow-Headers": "Content-Type, X-Sheet-Key, X-Door-Key, X-Sign-Tokens, X-Sign-Old",
   "Access-Control-Max-Age": "86400",
 };
 const json = (data, status = 200) => Response.json(data, { status, headers: cors });
+const bytes = (s) => new TextEncoder().encode(s).length;
+/** Two secrets compared in a time that doesn't depend on where they differ (round 3, S13d). */
+export function same(a, b) {
+  a = String(a || ""); b = String(b || "");
+  if (!a || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
 const str = (v, n) => String(v ?? "").replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "").trim().slice(0, n);
 // A name as others see it (audit R17): no control characters, no marks that flip the text's direction or hide in
 // it (so "Ana" can't be made to look like someone else), spaces folded. The joiner inside an emoji (a family, a
@@ -122,7 +142,8 @@ const perN = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_QTY ? v : 0);
 export function cleanAnswers(a, asks) {
   const out = {};
   for (const q of asks || []) {
-    let v = line(a?.[q.id], ANS_LEN);
+    // only the answer's own keys: a question with the id "constructor" never reads Object's (round 3, S13a)
+    let v = a && typeof a === "object" && Object.hasOwn(a, q.id) ? line(a[q.id], ANS_LEN) : "";
     if (q.opts.length && !q.opts.includes(v)) v = "";
     if (v) out[q.id] = v;
   }
@@ -131,11 +152,34 @@ export function cleanAnswers(a, asks) {
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-/** A whole sheet as one server sends it to the other, checked and bounded like everything else that comes in. */
+// A removed sign-up is remembered as "id~when" (when in base 36; a bare id is from before and counts as oldest), so
+// both servers trim the list by age, the same way (round 3, S13b: trimmed by alphabet, an old removal came back).
+const GONE = /^[a-z0-9]{8}(~[0-9a-z]{1,12})?$/;
+export const goneId = (g) => g.slice(0, 8);
+const goneAt = (g) => (g.length > 9 ? parseInt(g.slice(9), 36) || 0 : 0);
+export const goneMark = (id, t = Date.now()) => id + "~" + t.toString(36);
+const goneHas = (d, id) => (d.gone || []).some((g) => goneId(g) === id);
+/** One list of removed sign-ups from any number of lists: one per id (its latest), oldest first, the newest kept. */
+export function goneOf(...lists) {
+  const by = new Map();
+  for (const g of lists.flat()) {
+    if (typeof g !== "string" || !GONE.test(g)) continue;
+    const id = goneId(g), had = by.get(id);
+    if (!had || goneAt(g) > goneAt(had)) by.set(id, g);
+  }
+  return [...by.values()].sort((x, y) => goneAt(x) - goneAt(y) || (x < y ? -1 : 1)).slice(-MAX_GONE);
+}
+
+/** A whole sheet as one server sends it to the other, checked and bounded like everything else that comes in. Times
+ * are taken as at most a few minutes ahead of this server's clock (round 3, S11: a copy dated years ahead kept a
+ * sheet for ever and reordered a waiting list). */
 export function cleanCopy(d, id) {
   if (!d || typeof d !== "object" || d.id !== id || !isId(d.key, 24, 24)) return null;
-  const gone = [...new Set((Array.isArray(d.gone) ? d.gone : []).filter((g) => isId(g, 8, 8)))].slice(-MAX_GONE);
-  if (d.deleted) return { id, key: d.key, deleted: true, changed: num(d.changed), gone: [] };
+  const cap = Date.now() + AHEAD_MS;
+  const tm = (v) => Math.min(Math.max(0, num(v)), cap);
+  const gone = goneOf(Array.isArray(d.gone) ? d.gone : []).map((g) => (goneAt(g) > cap ? goneMark(goneId(g), cap) : g));
+  const keyAt = tm(d.keyAt);
+  if (d.deleted) return { id, key: d.key, ...(keyAt ? { keyAt } : {}), deleted: true, changed: tm(d.changed), gone: [] };
   const sheet = cleanSheet(d.sheet);
   if (!sheet) return null;
   const entries = [];
@@ -146,43 +190,72 @@ export function cleanCopy(d, id) {
     if (!name) continue;
     seen.add(e.id);
     const ans = cleanAnswers(e.ans, sheet.asks);
-    entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: num(e.at), ...(Object.keys(ans).length ? { ans } : {}),
-      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e), ...(e.walk ? { walk: 1 } : {}),
-      ...(num(e.editAt) > 0 ? { editAt: num(e.editAt) } : {}) });
+    entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: tm(e.at), ...(Object.keys(ans).length ? { ans } : {}),
+      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e, tm), ...(e.walk ? { walk: 1 } : {}),
+      ...(tm(e.editAt) > 0 ? { editAt: tm(e.editAt) } : {}) });
   }
   const door = isId(d.door, 24, 24) ? d.door : "";
-  return { id, key: d.key, sheet, sheetAt: num(d.sheetAt), entries, gone, changed: num(d.changed), door, doorAt: num(d.doorAt) };
+  return { id, key: d.key, ...(keyAt ? { keyAt } : {}), sheet, sheetAt: tm(d.sheetAt), entries, gone, changed: tm(d.changed), door, doorAt: tm(d.doorAt) };
 }
 
 /** A sign-up's check-in: when it was marked (0 = not here) and when that last changed (the later change wins). */
-const hereOf = (e) => (num(e.hereAt) > 0 ? { here: Math.max(0, num(e.here)), hereAt: num(e.hereAt) } : {});
+const hereOf = (e, tm = num) => (tm(e.hereAt) > 0 ? { here: Math.max(0, tm(e.here)), hereAt: tm(e.hereAt) } : {});
+
+// A sign-up id the other copy holds for someone else (another device's code) gets a new id of its own, made from the
+// id and the code, so both servers make the same one (round 3, S6). Not a secret, only different.
+function otherId(id, token) {
+  let h = 2166136261;
+  for (const c of id + "|" + token) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  let out = "";
+  for (let i = 0; i < 8; i++) { out += "abcdefghijkmnpqrstuvwxyz23456789"[h % 32]; h = Math.imul(h ^ (i + 7), 2654435761) >>> 0; }
+  return out;
+}
 
 /** Two copies of one sheet made into one. The same two copies give the same result, whichever comes first. */
 export function mergeCopies(a, b) {
   if (!a) return b;
   if (!b) return a;
   const changed = Math.max(a.changed || 0, b.changed || 0);
-  if (a.deleted || b.deleted) return { id: a.id, key: a.key, deleted: true, changed, gone: [] };
+  // the organizer link: the one made last (round 3, S7: it can be replaced)
+  const kk = (b.keyAt || 0) > (a.keyAt || 0) || ((b.keyAt || 0) === (a.keyAt || 0) && b.key > a.key) ? b : a;
+  const keys = { key: kk.key, ...(kk.keyAt ? { keyAt: kk.keyAt } : {}) };
+  if (a.deleted || b.deleted) return { id: a.id, ...keys, deleted: true, changed, gone: [] };
   const first = (b.sheetAt || 0) > (a.sheetAt || 0) || ((b.sheetAt || 0) === (a.sheetAt || 0) && JSON.stringify(b.sheet) > JSON.stringify(a.sheet)) ? b : a;
-  const gone = [...new Set([...(a.gone || []), ...(b.gone || [])])].sort().slice(-MAX_GONE);
-  const goneSet = new Set(gone);
+  const gone = goneOf(a.gone || [], b.gone || []);
+  const goneSet = new Set(gone.map(goneId));
   const rows = new Set(first.sheet.rows.filter((r) => !r.heading).map((r) => r.id));
   const byId = new Map();
-  for (const e of [...a.entries, ...b.entries]) {
-    if (goneSet.has(e.id)) continue;
+  const add = (e, depth = 0) => {
+    if (goneSet.has(e.id)) return;
     const had = byId.get(e.id);
-    if (!had) { byId.set(e.id, e); continue; }
+    if (!had) return void byId.set(e.id, e);
+    if (had.token !== e.token) {
+      // two devices' sign-ups under one id: two sign-ups. The earlier keeps the id (by time, then code: the same on
+      // both servers), the other moves to an id made from both, which the other server makes the same way
+      if (depth > 2) return;
+      const [keep, move] = (e.at || 0) < (had.at || 0) || ((e.at || 0) === (had.at || 0) && e.token < had.token) ? [e, had] : [had, e];
+      byId.set(e.id, keep);
+      return add({ ...move, id: otherId(move.id, move.token) }, depth + 1);
+    }
     // the same sign-up on both: its later change (moved, edited) wins, and on its own the later check-in change (marked
     // or unmarked), the same whichever comes first
     const body = laterEdit(had, e);
     const hc = (e.hereAt || 0) > (had.hereAt || 0) || ((e.hereAt || 0) === (had.hereAt || 0) && (e.here || 0) > (had.here || 0)) ? e : had;
     const { here, hereAt, ...rest } = body;
     byId.set(e.id, { ...rest, ...hereOf(hc) });
-  }
-  const entries = [...byId.values()].filter((e) => rows.has(e.row)).sort((x, y) => x.at - y.at || (x.id < y.id ? -1 : 1)).slice(0, MAX_ENTRIES);
+  };
+  for (const e of [...a.entries, ...b.entries]) add(e);
+  const asks = first.sheet.asks || [];
+  const entries = [...byId.values()].filter((e) => rows.has(e.row)).sort((x, y) => x.at - y.at || (x.id < y.id ? -1 : 1)).slice(0, MAX_ENTRIES)
+    .map((e) => { // answers only to questions the sheet still has (round 3, S13c)
+      if (!e.ans) return e;
+      const ans = cleanAnswers(e.ans, asks);
+      const { ans: _, ...rest } = e;
+      return Object.keys(ans).length ? { ...rest, ans } : rest;
+    });
   // the check-in link: the one made (or turned off) last
   const dk = (b.doorAt || 0) > (a.doorAt || 0) || ((b.doorAt || 0) === (a.doorAt || 0) && (b.door || "") > (a.door || "")) ? b : a;
-  return { id: a.id, key: a.key, sheet: first.sheet, sheetAt: first.sheetAt || 0, entries, gone, changed, door: dk.door || "", doorAt: dk.doorAt || 0 };
+  return { id: a.id, ...keys, sheet: first.sheet, sheetAt: first.sheetAt || 0, entries, gone, changed, door: dk.door || "", doorAt: dk.doorAt || 0 };
 }
 
 /** Of two copies of one sign-up, the one changed last (the same whichever comes first). */
@@ -193,28 +266,64 @@ function laterEdit(x, y) {
 }
 
 // what two copies must agree on (not the bookkeeping of who sent what when)
-const content = (d) => (d ? JSON.stringify([d.deleted || false, d.key, d.sheet, d.sheetAt, d.entries, [...(d.gone || [])].sort(), d.door || "", d.doorAt || 0]) : "");
+const content = (d) => (d ? JSON.stringify([d.deleted || false, d.key, d.keyAt || 0, d.sheet, d.sheetAt, d.entries, [...(d.gone || [])].sort(), d.door || "", d.doorAt || 0]) : "");
+
+// The copies between the two servers are signed, not sent with the key (round 3, S11): an HMAC of what is asked
+// (method, sheet, time, the body's hash) with the shared key, taken only within a few minutes of this server's clock.
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function syncSig(key, method, id, time, body) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const h = hex(await crypto.subtle.digest("SHA-256", typeof body === "string" ? new TextEncoder().encode(body) : body || new Uint8Array()));
+  return hex(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(`sumate-sync|${method}|${id}|${time}|${h}`)));
+}
+// The game host's door counts requests per visitor, by the address Cloudflare states. For a Worker's call to a host
+// in its own zone Cloudflare states the X-Real-IP the Worker sets (developers.cloudflare.com/fundamentals/reference/
+// http-headers, CF-Connecting-IP); left alone, every sheet's copies could count as one visitor and use up one
+// allowance together (round 3, S4). So each sheet's copies count as their own visitor: an address from the
+// documentation range (2001:db8::/32, never a real one) made from the sheet's id. The copy is still proved by its
+// signature; this only spreads the door's count.
+const peerAddr = (id) => {
+  let h = 0;
+  for (const c of id) h = (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0;
+  return { "X-Real-IP": `2001:db8:5a3e:${(h >>> 16).toString(16)}:${(h & 0xffff).toString(16)}::1` };
+};
+export async function syncHeaders(key, method, id, body = "") {
+  const time = String(Date.now());
+  return { "X-Sync-Time": time, "X-Sync-Sig": await syncSig(key, method, id, time, body) };
+}
+async function syncOk(req, env, id, body) {
+  const time = req.headers.get("X-Sync-Time") || "";
+  if (!env.SYNC_KEY || !/^\d{13}$/.test(time) || Math.abs(Date.now() - Number(time)) > AHEAD_MS) return false;
+  return same(req.headers.get("X-Sync-Sig"), await syncSig(env.SYNC_KEY, req.method, id, time, body));
+}
+
+// per address (one hash of it, IPv6 by its /64): 30 new sheets, 300 changes and 120 reads a minute (wrangler.toml
+// NEWS, WRITES, READS; the game host's copy counts the same, kinetic/server.mjs). A read counts because each one
+// wakes a sheet that costs Cloudflare's daily allowance (round 3, S3). The other server's copies are proved by their
+// signature, before any sheet is woken, and counted apart.
+async function limited(req, env, url) {
+  const sync = url.pathname.startsWith("/api/sync/");
+  if (sync) return false;
+  const net = await netKey(req.headers.get("CF-Connecting-IP"));
+  const over = async (lim) => {
+    try {
+      return !!lim && !(await lim.limit({ key: net })).success;
+    } catch (_) {
+      return false;
+    }
+  };
+  if (req.method === "GET") return url.pathname.startsWith("/api/sheets/") && over(env.READS);
+  return (await over(env.WRITES)) || (url.pathname === "/api/sheets" && req.method === "POST" && (await over(env.NEWS)));
+}
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (url.pathname === "/health" || url.pathname === "/api/health") return json({ ok: true });
-    // per address, the same as the game host's copy (kinetic/server.mjs; safety round 2, J7 swept here): 30 new sheets
-    // and 300 changes a minute (wrangler.toml NEWS, WRITES). The other server's copies (/api/sync) carry their own key.
-    const writing = req.method !== "GET" && !url.pathname.startsWith("/api/sync/");
-    if (writing && (env.WRITES || env.NEWS)) {
-      const net = await netKey(req.headers.get("CF-Connecting-IP"));
-      const over = async (lim) => {
-        try {
-          return lim && !(await lim.limit({ key: net })).success;
-        } catch (_) {
-          return false;
-        }
-      };
-      if ((await over(env.WRITES)) || (url.pathname === "/api/sheets" && req.method === "POST" && (await over(env.NEWS))))
-        return new Response(null, { status: 429, headers: cors });
-    }
+    // the app's own refusal says so in JSON, so the app tells it from a platform's own error page (which it answers
+    // by trying the other server)
+    if (await limited(req, env, url)) return json({ error: "slow" }, 429);
     if (url.pathname === "/api/sheets" && req.method === "POST") {
       const body = await readJson(req);
       const sheet = cleanSheet(body);
@@ -230,16 +339,48 @@ export default {
       return json({ error: "busy" }, 503);
     }
     const m = url.pathname.match(/^\/api\/(sheets|sync)\/([a-z0-9]{10})(\/.*)?$/);
-    if (m) return env.SHEETS.get(env.SHEETS.idFromName(m[2])).fetch(req);
+    if (m && m[1] === "sync") {
+      if (m[3] || (req.method !== "GET" && req.method !== "POST")) return json({ error: "not found" }, 404);
+      const body = req.method === "POST" ? await readCapped(req, MAX_SYNC) : new Uint8Array();
+      if (body === null) return json({ error: "too big" }, 413);
+      if (!(await syncOk(req, env, m[2], body))) return json({ error: "not yours" }, 403);
+      // to the sheet by a path only this code makes (no request from outside reaches /peer)
+      return env.SHEETS.get(env.SHEETS.idFromName(m[2])).fetch(new Request("https://sheet/peer/" + m[2], { method: req.method, body: req.method === "POST" ? body : undefined }));
+    }
+    if (m) {
+      // the sheet counts sign-ups per network (S2): it gets the network from here, never from the visitor
+      const h = new Headers(req.headers);
+      h.set("X-Net", await netKey(req.headers.get("CF-Connecting-IP")));
+      return env.SHEETS.get(env.SHEETS.idFromName(m[2])).fetch(new Request(req, { headers: h }));
+    }
     if (env.TEST_LOCAL_CSP === "1" && env.ASSETS) return testPage(req, env);
     return new Response("not found", { status: 404, headers: cors });
   },
 };
 
+/** A request's body, refused unread when it says it is too big and cut off when it turns out to be (round 3, S12). */
+async function readCapped(req, max) {
+  if (Number(req.headers.get("content-length")) > max) return null;
+  if (!req.body) return new Uint8Array();
+  const reader = req.body.getReader();
+  const parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) { try { await reader.cancel(); } catch {} return null; }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
 async function readJson(req, max = MAX_BODY) {
-  const text = await req.text();
-  if (text.length > max) return null;
-  try { return JSON.parse(text); } catch { return null; }
+  const body = await readCapped(req, max);
+  if (!body) return null;
+  try { return JSON.parse(new TextDecoder().decode(body)); } catch { return null; }
 }
 
 export class Sheet {
@@ -305,10 +446,11 @@ export class Sheet {
     const d = this.d;
     const v = d.v;
     try {
+      const body = JSON.stringify(this.copy());
       const r = await fetch(`${this.peer}/api/sync/${d.id}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Sync-Key": this.env.SYNC_KEY },
-        body: JSON.stringify(this.copy()),
+        headers: { "Content-Type": "application/json", ...peerAddr(d.id), ...(await syncHeaders(this.env.SYNC_KEY, "POST", d.id, body)) },
+        body,
         signal: AbortSignal.timeout(10000),
       });
       if (!r.ok) throw new Error("sync " + r.status);
@@ -323,7 +465,7 @@ export class Sheet {
     } catch {
       d.tries = (d.tries || 0) + 1;
     }
-    await this.state.storage.put("d", d);
+    try { await this.state.storage.put("d", d); } catch (e) { console.error("sumate: keeping a copy failed:", e && e.message); }
   }
 
   copy() {
@@ -335,7 +477,7 @@ export class Sheet {
   async ask(id) {
     if (!this.peer) return "none";
     try {
-      const r = await fetch(`${this.peer}/api/sync/${id}`, { headers: { "X-Sync-Key": this.env.SYNC_KEY }, signal: AbortSignal.timeout(8000) });
+      const r = await fetch(`${this.peer}/api/sync/${id}`, { headers: { ...peerAddr(id), ...(await syncHeaders(this.env.SYNC_KEY, "GET", id)) }, signal: AbortSignal.timeout(8000) });
       if (r.status === 404) return "none";
       if (!r.ok) return "unknown";
       const d = cleanCopy(await r.json(), id);
@@ -352,31 +494,47 @@ export class Sheet {
   }
 
   isOwner(req) {
-    const k = req.headers.get("X-Sheet-Key") || "";
-    return !!this.d && !this.d.deleted && k.length === this.d.key.length && k === this.d.key;
+    return !!this.d && !this.d.deleted && same(req.headers.get("X-Sheet-Key"), this.d.key);
   }
 
   /** A helper with the check-in link (or the organizer): may mark who came and add someone who just turned up. */
   isDoor(req) {
-    const k = req.headers.get("X-Door-Key") || "";
-    return this.isOwner(req) || (!!this.d?.door && k.length === this.d.door.length && k === this.d.door);
+    return this.isOwner(req) || (!!this.d?.door && same(req.headers.get("X-Door-Key"), this.d.door));
   }
 
-  isPeer(req) {
-    const k = req.headers.get("X-Sync-Key") || "";
-    return !!this.env.SYNC_KEY && k.length === this.env.SYNC_KEY.length && k === this.env.SYNC_KEY;
+  /** The sheet as it would be stored with `entries` (or as it is): within the size budget? (round 3, S2) */
+  fits(entries = this.d.entries, sheet = this.d.sheet) {
+    return bytes(JSON.stringify({ ...this.copy(), entries, sheet })) <= MAX_BYTES;
+  }
+
+  /** One network's sign-ups on this sheet this hour (in memory: a rough count, enough to stop one person filling it). */
+  overNet(req) {
+    const net = req.headers.get("X-Net") || "";
+    if (!net) return false;
+    const now = Date.now();
+    this.nets ||= new Map();
+    let n = this.nets.get(net);
+    if (!n || now - n.since > 3600e3) n = { since: now, count: 0 };
+    n.count++;
+    this.nets.set(net, n);
+    if (this.nets.size > 5000) for (const [k, v] of this.nets) if (now - v.since > 3600e3) this.nets.delete(k);
+    return n.count > PER_NET_HOUR;
   }
 
   /** What a visitor sees: names only if the organizer shows them (the organizer always sees them). */
   view(req) {
     const owner = this.isOwner(req);
     const door = this.isDoor(req);
-    const mine = new Set((req.headers.get("X-Sign-Tokens") || "").split(",").filter(Boolean));
+    const mine = new Set(tokensOf(req));
+    const old = req.headers.get("X-Sign-Old") || "";
     const d = this.d;
     const waits = waitingOf(d);
     return {
       id: d.id,
       owner,
+      // sign-ups made with the device's code from before codes were per sheet (round 3, S5): while there are some, the
+      // app keeps sending that old code on this sheet; at 0 it stops
+      ...(old ? { old: d.entries.filter((e) => e.token === old).length } : {}),
       ...(door ? { door: true } : {}), // checking people in: names shown (to mark them), answers not
       ...(owner && d.door ? { doorKey: d.door } : {}), // the organizer can share (or replace) the check-in link
       sheet: d.sheet,
@@ -407,13 +565,12 @@ export class Sheet {
     }
     const id = url.pathname.split("/")[3];
 
-    // the other server
-    if (url.pathname.startsWith("/api/sync/")) {
-      if (!this.isPeer(req)) return json({ error: "not yours" }, 403);
+    // the other server (its signature was checked by the Worker before this sheet was woken; only that code makes /peer)
+    if (url.pathname.startsWith("/peer/")) {
       await this.load();
       if (req.method === "GET") return this.d ? json(this.copy()) : json({ error: "gone" }, 404);
       if (req.method !== "POST") return json({ error: "not found" }, 404);
-      const got = cleanCopy(await readJson(req, MAX_SYNC), id);
+      const got = cleanCopy(await readJson(req, MAX_SYNC), url.pathname.split("/")[2]);
       if (!got) return json({ error: "bad copy" }, 400);
       const merged = mergeCopies(this.d, got);
       if (!this.d || content(merged) !== content(this.d)) {
@@ -441,9 +598,17 @@ export class Sheet {
       const sheet = cleanSheet(await readJson(req));
       if (!sheet) return json({ error: "bad sheet" }, 400);
       const ids = new Set(sheet.rows.filter((r) => !r.heading).map((r) => r.id));
+      // a question taken off takes its answers with it (round 3, S13c)
+      const entries = d.entries.filter((e) => ids.has(e.row)).map((e) => {
+        if (!e.ans) return e;
+        const ans = cleanAnswers(e.ans, sheet.asks);
+        const { ans: _, ...rest } = e;
+        return Object.keys(ans).length ? { ...rest, ans } : rest;
+      });
+      if (!this.fits(entries, sheet)) return json({ error: "big" }, 409);
       d.sheet = sheet;
       d.sheetAt = Math.max(Date.now(), (d.sheetAt || 0) + 1);
-      d.entries = d.entries.filter((e) => ids.has(e.row));
+      d.entries = entries;
       await this.save();
       return json(this.view(req));
     }
@@ -451,7 +616,7 @@ export class Sheet {
     if (rest === "/" && req.method === "DELETE") {
       if (!this.isOwner(req)) return json({ error: "not yours" }, 403);
       // kept as "deleted" (a few bytes) until it expires, so the other server's copy can't bring it back
-      this.d = { id: d.id, key: d.key, deleted: true, changed: d.changed, gone: [], v: d.v, sent: d.sent };
+      this.d = { id: d.id, key: d.key, ...(d.keyAt ? { keyAt: d.keyAt } : {}), deleted: true, changed: d.changed, gone: [], v: d.v, sent: d.sent };
       await this.save();
       return json({ ok: true });
     }
@@ -462,7 +627,7 @@ export class Sheet {
       if (isId(b?.id, 8, 8)) {
         const again = d.entries.find((e) => e.id === b.id);
         if (again && again.token === b.token) return json({ token: again.token, view: this.view(withToken(req, again.token)) });
-        if (again || d.gone.includes(b.id)) b.id = null;
+        if (again || goneHas(d, b.id)) b.id = null;
       }
       const row = d.sheet.rows.find((r) => r.id === b?.row && !r.heading);
       const name = line(b?.name, 60);
@@ -485,8 +650,13 @@ export class Sheet {
       // pinned: a required question must be answered, except when the organizer adds someone
       if (!staff && asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
       const now = Date.now();
-      d.entries.push({ id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: now,
-        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}), ...(staff && b?.here ? { here: now, hereAt: now, walk: 1 } : {}) });
+      const entry = { id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: now,
+        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}), ...(staff && b?.here ? { here: now, hereAt: now, walk: 1 } : {}) };
+      // pinned: one sheet's size budget, so both servers can always copy it (round 3, S2)
+      if (!this.fits([...d.entries, entry])) return json({ error: "big" }, 409);
+      // pinned: at most PER_NET_HOUR sign-ups from one network on one sheet in an hour, except the organizer's and helpers'
+      if (!staff && this.overNet(req)) return json({ error: "busy" }, 429);
+      d.entries.push(entry);
       await this.save();
       return json({ token, view: this.view(withToken(req, token)) });
     }
@@ -495,7 +665,7 @@ export class Sheet {
     if (hm && req.method === "POST") {
       const e = d.entries.find((x) => x.id === hm[1]);
       if (!e) return json({ error: "gone" }, 404);
-      const mine = (req.headers.get("X-Sign-Tokens") || "").split(",").includes(e.token);
+      const mine = tokensOf(req).includes(e.token);
       const row = d.sheet.rows.find((r) => r.id === e.row);
       // pinned: the organizer and check-in helpers mark anyone; a person only themselves, when the sheet lets them
       if (!this.isDoor(req) && !(mine && canSelfIn(d.sheet, row))) return json({ error: mine ? "notday" : "not yours" }, 403);
@@ -527,7 +697,7 @@ export class Sheet {
     if (ch && req.method === "POST") {
       const e = d.entries.find((x) => x.id === ch[1]);
       if (!e) return json({ error: "nosign" }, 404);
-      const tokens = (req.headers.get("X-Sign-Tokens") || "").split(",");
+      const tokens = tokensOf(req);
       const owner = this.isOwner(req);
       if (!owner && !tokens.includes(e.token)) return json({ error: "not yours" }, 403);
       const b = await readJson(req);
@@ -579,6 +749,7 @@ export class Sheet {
         if (taken + qty > to.need && !(!moved && waitingOf(d).has(e.id))) return json({ error: taken >= to.need ? "full" : "few" }, 409);
       }
       if (name === e.name && note === e.note && JSON.stringify(ans) === JSON.stringify(cleanAnswers(e.ans, asks)) && qty === qtyOf(e) && !moved) return json(this.view(req));
+      if (!this.fits(d.entries.map((x) => (x === e ? { ...e, name, note, ans, qty } : x)))) return json({ error: "big" }, 409);
       Object.assign(e, { name, note, editAt: stamp(e) });
       if (qty > 1) e.qty = qty; else delete e.qty;
       if (Object.keys(ans).length) e.ans = ans; else delete e.ans;
@@ -596,15 +767,41 @@ export class Sheet {
     if (del && req.method === "DELETE") {
       const e = d.entries.find((x) => x.id === del[1]);
       if (!e) return json(this.view(req));
-      const mine = (req.headers.get("X-Sign-Tokens") || "").split(",").includes(e.token);
+      const mine = tokensOf(req).includes(e.token);
       if (!mine && !this.isOwner(req)) return json({ error: "not yours" }, 403);
       const row = d.sheet.rows.find((r) => r.id === e.row);
       // pinned: a final sheet keeps its list once sign-ups are shut; the organizer can still remove anyone
       if (d.sheet.final && !this.isOwner(req) && shut(d.sheet, row)) return json({ error: "final" }, 409);
       d.entries = d.entries.filter((x) => x !== e);
-      d.gone = [...d.gone, e.id].slice(-MAX_GONE);
+      d.gone = goneOf(d.gone, [goneMark(e.id)]);
       await this.save();
       return json(this.view(req));
+    }
+
+    // the organizer removes many at once (round 3, S2: someone filled a sheet with made-up sign-ups)
+    if (rest === "/signups/remove" && req.method === "POST") {
+      if (!this.isOwner(req)) return json({ error: "not yours" }, 403);
+      const b = await readJson(req);
+      const ids = new Set((Array.isArray(b?.ids) ? b.ids : []).filter((x) => isId(x, 8, 8)).slice(0, MAX_ENTRIES));
+      const out = d.entries.filter((x) => ids.has(x.id));
+      if (out.length) {
+        const now = Date.now();
+        d.entries = d.entries.filter((x) => !ids.has(x.id));
+        d.gone = goneOf(d.gone, out.map((x) => goneMark(x.id, now)));
+        await this.save();
+      }
+      return json(this.view(req));
+    }
+
+    // a new organizer link: the old one stops working on both servers (round 3, S7: one pasted in the wrong place)
+    if (rest === "/key" && req.method === "POST") {
+      if (!this.isOwner(req)) return json({ error: "not yours" }, 403);
+      d.key = randomToken(24);
+      d.keyAt = Math.max(Date.now(), (d.keyAt || 0) + 1);
+      await this.save();
+      const h = new Headers(req.headers);
+      h.set("X-Sheet-Key", d.key);
+      return json({ key: d.key, view: this.view(new Request(req.url, { headers: h })) });
     }
 
     return json({ error: "not found" }, 404);
@@ -633,6 +830,12 @@ export function waitingOf(d) {
   return out;
 }
 
+/** The device codes a request shows: this sheet's (X-Sign-Tokens) and, while it still has sign-ups with it, the device's
+ * code from before codes were per sheet (X-Sign-Old). */
+function tokensOf(req) {
+  return [...(req.headers.get("X-Sign-Tokens") || "").split(","), req.headers.get("X-Sign-Old") || ""].filter((x) => isId(x, 16, 32));
+}
+
 function withToken(req, token) {
   const h = new Headers(req.headers);
   const have = (h.get("X-Sign-Tokens") || "").split(",").filter(Boolean);
@@ -653,7 +856,7 @@ async function testPage(req, env) {
 }
 
 // One home line is one address: IPv6 by its /64, IPv4 as itself; only a hash goes to the limit (safety round 2, J7/J9)
-function netOf(ip) {
+export function netOf(ip) {
   ip = String(ip || "unknown").trim().replace(/^::ffff:(?=\d+\.)/i, "");
   if (!ip.includes(":")) return ip;
   const [a, b = ""] = ip.split("%")[0].split("::");

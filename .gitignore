@@ -11,3 +11,4 @@ worker/sumate-shots/
 kinetic/sheet.mjs
 kinetic/cal.mjs
 kinetic/data/
+__pycache__/

@@ -49,10 +49,18 @@ each sheet in its own Durable Object. A sheet nobody changes for 90 days is dele
 
 **Two servers.** Every sheet is also kept on a second server, `kinetic/server.mjs`, which runs the very same Worker
 and Sheet code on Node (on the game host at games.jurisgames.com/sumate). Either one takes sign-ups and edits; after
-each change a server sends its copy to the other (`POST /api/sync/<id>`, with a key both share: `SYNC_KEY`, a Worker
-secret, and `DATA_DIR/sync-key` on the game host), which merges it and answers with the result. Merging never loses a
-sign-up (they add up by id, removed ones are remembered), the sheet's text is the one edited last, and a deleted sheet
-stays deleted. A server that can't reach the other tries again (every 15 s up to every 5 minutes); a server asked for
+each change a server sends its copy to the other (`POST /api/sync/<id>`, signed with a key both share: `SYNC_KEY`, a
+Worker secret, and `DATA_DIR/sync-key` on the game host), which merges it and answers with the result. The key itself
+is never sent: each copy carries an HMAC of the method, the sheet, the time and the body, taken only within 5 minutes
+of the receiving server's clock. Merging never loses a sign-up (they add up by id, removed ones are remembered; one
+id held by two devices becomes two sign-ups), the sheet's text is the one edited last, and a deleted sheet stays
+deleted. A sheet takes no change past 500 KB, so two copies merged still fit the 1.5 MB the other server accepts.
+
+To change the shared key: write a new one into `C:/AI/Secrets/sumate-sync-key`, put it on Cloudflare with
+`npx wrangler secret put SYNC_KEY`, write it onto the game host with ChessTactics'
+`node tools/kinetic.mjs secret sumate sync-key C:/AI/Secrets/sumate-sync-key`, and restart the host (the server reads
+the file when it starts). Copies sent between the steps are refused and sent again by themselves (every 15 s up to
+every 5 minutes). A server that can't reach the other tries again (every 15 s up to every 5 minutes); a server asked for
 a sheet it doesn't have asks the other one. The app asks the other server when one doesn't answer, and with no server
 at all shows the device's last copy of the sheet, read only.
 

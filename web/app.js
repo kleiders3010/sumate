@@ -94,11 +94,22 @@ async function copy(text) {
 // Every sheet is kept on two servers that copy each other (Kleider: "all parts of the app should work even if one
 // the pieces break down"): this site's own (Cloudflare) and the game host's (games.jurisgames.com/sumate). When one
 // doesn't answer, the app asks the other, and stays with the one that answered.
+// Test switches (?server= etc.) take only our own hosts, this computer, or addresses that can never connect (.invalid,
+// for failover tests): a crafted link can never point the app at somebody else's server (APP-RULES safety 1).
+const testHost = (u) => {
+  try {
+    const x = new URL(u);
+    if (!/^(wss?|https?):$/.test(x.protocol)) return null;
+    const h = x.hostname;
+    return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(h) || /(^|\.)jurisgames\.com$/.test(h) || /\.invalid$/.test(h) ? u : null;
+  } catch { return null; }
+};
 const RP = new URLSearchParams(location.search);
+const RPG = (k) => (RP.get(k) ? testHost(RP.get(k)) : null);
 const OURS = /(^|\.)jurisgames\.com$|\.github\.io$/.test(location.hostname);
 const SERVERS = [
-  RP.get("server") || (location.hostname.endsWith(".github.io") ? "https://signup.jurisgames.com" : ""),
-  RP.get("server2") || (OURS && !RP.get("server") ? "https://games.jurisgames.com/sumate" : null),
+  RPG("server") || (location.hostname.endsWith(".github.io") ? "https://signup.jurisgames.com" : ""),
+  RPG("server2") || (OURS && !RPG("server") ? "https://games.jurisgames.com/sumate" : null),
 ].filter((s) => s !== null);
 let at = 0;
 try { at = Math.min(Number(sessionStorage.getItem("sumate.server")) || 0, SERVERS.length - 1); } catch {}

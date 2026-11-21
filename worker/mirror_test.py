@@ -119,7 +119,7 @@ try:
         m.fill("#signName", "Beto")
         m.click("#signForm .btn.primary")
         m.wait_for_selector(".person.me", timeout=30000)
-        o.wait_for_function("document.getElementById('srows').textContent.includes('Beto')", timeout=30000)
+        o.wait_for_function("() => document.getElementById('srows').textContent.includes('Beto')", timeout=30000)
         check(True, "Beto signs up on the main site; the organizer's page on the copy shows him")
         pv = o.evaluate("fetch(new URL('privacy', location.origin + '/sumate/').href).then(r => r.status)")
         check(pv == 200, f"the copy's privacy page opens ({pv})")  # pinned: HTTP OK

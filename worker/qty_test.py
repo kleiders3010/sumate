@@ -76,7 +76,7 @@ with sync_playwright() as p:
     ana.locator("#srows .srow").nth(1).locator(".join").click()
     check(ana.is_hidden("#signQtyWrap"), "with one left to take, no How many")
     ana.click("#signForm .btn.primary")
-    ana.wait_for_function("document.querySelectorAll('#srows .person.me').length === 2", timeout=15000)
+    ana.wait_for_function("() => document.querySelectorAll('#srows .person.me').length === 2", timeout=15000)
     cards = ana.locator("#srows .srow")
     check(all(cards.nth(i).locator(".join").count() == 0 and cards.nth(i).locator(".shut").count() == 1 for i in range(2)),
           "at her limit no line offers Sign up, and each says why")
@@ -104,7 +104,7 @@ with sync_playwright() as p:
     o.fill("#signName", "Grandma")
     o.fill("#signQty", "4")
     o.click("#signForm .btn.primary")
-    o.wait_for_function("document.querySelector('#srows .srow')?.classList.contains('full')", timeout=15000)
+    o.wait_for_function("() => document.querySelector('#srows .srow')?.classList.contains('full')", timeout=15000)
     check(True, "4 more dozen fill the cookies (2 + 4 = 6)")
     with o.expect_download() as dl:
         o.click("#csvBtn")

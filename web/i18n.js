@@ -216,6 +216,7 @@ const DICT = {
     "Trade places with": "Cambiar de lugar con",
     "That one is full: the person you pick takes this spot.": "Ese está completo: la persona que elijas pasa a este lugar.",
     "Saved": "Guardado",
+    "This browser's storage is full, so it can't remember this sheet. Keep its link somewhere safe.": "El almacenamiento del navegador está lleno y no puede recordar esta lista. Guardá su enlace en un lugar seguro.",
     "Moved you to {line}": "Te pasamos a {line}",
     "Moved {name} to {line}": "Pasaste a {name} a {line}",
     "{a} and {b} traded places": "{a} y {b} cambiaron de lugar",
@@ -228,17 +229,17 @@ const DICT = {
     "When": "Cuándo",
   },
 };
+// only a language this app has (never "constructor" or "__proto__" from a link), and only that is remembered
+const baseOf = (l) => String(l || "").toLowerCase().split("-")[0];
+const known = (b) => b === "en" || Object.hasOwn(DICT, b);
+
 function pick() {
   const asked = new URLSearchParams(location.search).get("lang");
-  if (asked) {
-    try { localStorage.setItem("lang", asked); } catch {}
+  if (asked && known(baseOf(asked))) {
+    try { localStorage.setItem("sumate.lang", baseOf(asked)); } catch {}
   }
-  const want = [asked, safeGet("lang"), ...(navigator.languages || [navigator.language])].filter(Boolean);
-  for (const l of want) {
-    const base = String(l).toLowerCase().split("-")[0];
-    if (base === "en") return "en";
-    if (DICT[base]) return base;
-  }
+  const want = [asked, safeGet("sumate.lang") || safeGet("lang"), ...(navigator.languages || [navigator.language])].filter(Boolean);
+  for (const l of want) if (known(baseOf(l))) return baseOf(l);
   return "en";
 }
 
@@ -247,7 +248,7 @@ function safeGet(k) {
 }
 
 export const LANG = pick();
-const table = DICT[LANG] || {};
+const table = LANG !== "en" && Object.hasOwn(DICT, LANG) ? DICT[LANG] : {};
 
 /** t("{name} left", { name }) -> the text in the UI language, placeholders filled. */
 export function t(text, vars) {

@@ -32,6 +32,18 @@ const MAX_BODY = 1024 * 1024 + 1024;
 const NEW_PER_MINUTE = 30; // sheets one address may make in a minute
 const WRITES_PER_MINUTE = 300; // changes one address may make in a minute
 mkdirSync(DATA, { recursive: true });
+// how busy this server is goes only to whoever has the ops key (data/ops-key; the deploy's "is anyone online?"),
+// everyone else hears "ok" (audit R17)
+let opsKey = process.env.OPS_KEY || "";
+if (!opsKey) try { opsKey = readFileSync(join(DATA, "ops-key"), "utf8").trim(); } catch (_) {}
+const isOps = (req) => {
+  const k = String(req.headers["x-ops-key"] || "");
+  if (!opsKey || k.length !== opsKey.length) return false;
+  let d = 0;
+  for (let i = 0; i < k.length; i++) d |= k.charCodeAt(i) ^ opsKey.charCodeAt(i);
+  return d === 0;
+};
+
 
 // What the sweep needs to know of each room file on disk: read once at start, then kept up to date on every write,
 // so the sweep never re-reads the folder (APP-RULES safety 14: work proportional to what changed).
@@ -197,6 +209,7 @@ const server = http.createServer(async (req, res) => {
   const cors = { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" };
   if (path === "/api/health" || path === "/health") {
     res.writeHead(200, { "content-type": "application/json", ...cors });
+    if (!isOps(req)) return res.end(JSON.stringify({ ok: true }));
     return res.end(JSON.stringify({ ok: true, sheets: held.size, peer: !!(ENV.PEER && ENV.SYNC_KEY), upMinutes: Math.round((Date.now() - started) / 60000) }));
   }
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").split(",")[0].trim();

@@ -1,0 +1,6 @@
+# Served by the Worker with every page (Cloudflare static assets). The page's own policy (which servers it may
+# talk to) is the <meta> in index.html, so the GitHub Pages copy carries it too; these are the header-only parts.
+/*
+  Content-Security-Policy: frame-ancestors *
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

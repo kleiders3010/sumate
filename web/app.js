@@ -20,7 +20,7 @@ translatePage();
 
 // ---------- device memory: name, a device token (to remove your own sign-ups), your sheets ----------
 function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function safeSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } }
 
 function deviceToken() {
   let tok = safeGet("sumate.token");
@@ -40,7 +40,12 @@ function rememberSheet(id, patch) {
   const all = mySheets();
   const old = all.find((s) => s.id === id) || { id };
   const next = { ...old, ...patch, seen: Date.now() };
-  safeSet("sumate.sheets", JSON.stringify([next, ...all.filter((s) => s.id !== id)].slice(0, 100)));
+  const v = JSON.stringify([next, ...all.filter((s) => s.id !== id)].slice(0, 100));
+  // the organizer's key matters more than the offline copies: a full storage gives those up first (audit R13)
+  if (safeSet("sumate.sheets", v)) return;
+  try { localStorage.removeItem("sumate.copies"); } catch {}
+  if (!safeSet("sumate.sheets", v) && (patch.key || patch.door))
+    toast(t("This browser's storage is full, so it can't remember this sheet. Keep its link somewhere safe."));
 }
 function forgetSheet(id) {
   safeSet("sumate.sheets", JSON.stringify(mySheets().filter((s) => s.id !== id)));
@@ -1180,8 +1185,8 @@ $("#csvBtn").onclick = () => {
 
   const cell = (x) => {
     let s = String(x ?? "");
-    if (/^[=+\-@]/.test(s)) s = "'" + s; // keep spreadsheets from running it as a formula
-    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    if (typeof x !== "number" && /^[=+\-@\t\r]/.test(s)) s = "'" + s; // keep spreadsheets from running it as a formula
+    return /[",\r\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const asks = v.sheet.asks || [];
   const dated = v.sheet.rows.some((r) => r.date || r.start);

@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "The Worker is deployed with this exact wrangler (npx wrangler uses it once npm ci has run here)",
+  "devDependencies": {
+    "wrangler": "4.166.0"
+  },
+  "type": "module"
+}

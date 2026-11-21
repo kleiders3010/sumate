@@ -73,8 +73,8 @@ with sync_playwright() as p:
 
     # Ana leaves: Beto is in by himself, and his open page tells him
     ana.locator("#srows .person.me .x").click()
-    ana.wait_for_function("!document.querySelector('#srows .person.me')", timeout=15000)
-    beto.wait_for_function("document.querySelector('#toast')?.textContent.includes('A spot opened')", timeout=20000)
+    ana.wait_for_function("() => !document.querySelector('#srows .person.me')", timeout=15000)
+    beto.wait_for_function("() => document.querySelector('#toast')?.textContent.includes('A spot opened')", timeout=20000)
     check(beto.locator("#srows .people:not(.waiting) .person.me").count() == 1, "Beto is in by himself, and told so")
     cara.reload()
     cara.wait_for_selector(".waiting .person.me", timeout=15000)

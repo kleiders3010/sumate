@@ -82,7 +82,7 @@ with sync_playwright() as p:
     ana.wait_for_selector("iframe")
     fr = ana.frame_locator("iframe")
     fr.locator("#srows .srow").first.wait_for()
-    ana.wait_for_function("document.querySelector('iframe').offsetHeight != 640", timeout=10000)
+    ana.wait_for_function("() => document.querySelector('iframe').offsetHeight != 640", timeout=10000)
     ih = ana.evaluate("document.querySelector('iframe').offsetHeight")
     inner = ana.frames[1].evaluate("document.querySelector('#sheet').offsetHeight")
     check(abs(ih - inner) <= 2, f"the iframe takes the sheet's height ({ih} vs {inner})")

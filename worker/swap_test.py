@@ -76,7 +76,7 @@ with sync_playwright() as p:
     ana.fill("#signNote", "rake")
     shot(ana, "swap-1-change-box.png")
     ana.click("#signForm .btn.primary")
-    ana.wait_for_function(f"document.querySelectorAll('#srows .srow')[1].querySelector('.person.me')", timeout=15000)
+    ana.wait_for_function(f"() => document.querySelectorAll('#srows .srow')[1].querySelector('.person.me')", timeout=15000)
     check(card(ana, 0).locator(".person").count() == 0, "the kitchen is free again")
     check("rake" in card(ana, 1).locator(".person.me").inner_text(), "her new note went along")
     v = o.evaluate(API, [f"/api/sheets/{sid}", "GET", None, None])[1]
@@ -116,7 +116,7 @@ with sync_playwright() as p:
     check("Beto" in o.inner_text("#signRow"), f"the box says whose ({o.inner_text('#signRow')!r})")
     o.select_option("#signLine", garage)
     o.click("#signForm .btn.primary")
-    o.wait_for_function("document.querySelectorAll('#srows .srow')[2].querySelector('.person')", timeout=15000)
+    o.wait_for_function("() => document.querySelectorAll('#srows .srow')[2].querySelector('.person')", timeout=15000)
     check(card(o, 0).locator(".person").count() == 0, "Beto left the kitchen for the garage")
     st = o.evaluate(API, [f"/api/sheets/{sid}/signups", "POST", {"row": garden, "name": "Cara", "token": "c" * 20}, None])
     check(st[0] == 200, "Cara fills the garden (2 of 2)")
@@ -128,7 +128,7 @@ with sync_playwright() as p:
     o.select_option("#signWith", aid)
     shot(o, "swap-3-trade.png")
     o.click("#signForm .btn.primary")
-    o.wait_for_function("document.querySelectorAll('#srows .srow')[2].innerText.includes('Ana')", timeout=15000)
+    o.wait_for_function("() => document.querySelectorAll('#srows .srow')[2].innerText.includes('Ana')", timeout=15000)
     got = {e["name"]: e["row"] for e in o.evaluate(API, [f"/api/sheets/{sid}", "GET", None, None])[1]["entries"]}
     check(got == {"Ana": garage, "Beto": garden, "Cara": garden}, f"Ana and Beto traded places ({got})")
     shot(o, "swap-4-traded.png")

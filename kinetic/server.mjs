@@ -24,7 +24,7 @@ const worker = await import(process.env.SUMATE_SHEET || "./sheet.mjs");
 const { Sheet } = worker;
 
 const PORT = Number(process.env.PORT) || 8790;
-const BIND = process.env.BIND || "0.0.0.0";
+const BIND = process.env.BIND || "127.0.0.1"; // behind the game host's door only (safety round 2, J18)
 const DATA = process.env.DATA_DIR || join(process.cwd(), "data");
 const MAX_HELD = 2000; // sheets held in memory at once (the rest stay on disk)
 const IDLE_MS = 10 * 60 * 1000;

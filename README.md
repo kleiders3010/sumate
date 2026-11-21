@@ -43,6 +43,10 @@ people add their name to a free spot. No account for anyone, no ads, no limits, 
 - The page updates by itself, and the server refuses a spot that was just taken.
 - Send feedback (start page and every sheet): a problem or an idea, an optional email for an answer and, if you keep the tick, technical details (browser, page, errors; never the sheet or names). "See what's sent" shows it all first. Emailed to hello@jurisgames.com through [jurisgames-feedback](https://github.com/kleiders3010/jurisgames-feedback), which stores nothing.
 
+## Problems or ideas
+
+In the app: Send feedback. If the app doesn't open at all, open an issue at https://github.com/kleiders3010/sumate/issues or email hello@jurisgames.com.
+
 ## How it works
 A small Cloudflare Worker (`worker/`) serves the web app (`web/`, plain HTML/CSS/JS, no build step) and keeps
 each sheet in its own Durable Object. A sheet nobody changes for 90 days is deleted automatically.

@@ -55,13 +55,13 @@ await check("S7 the later organizer link wins when the two servers' copies meet,
   assert.equal(mergeCopies(b, a).key, "b".repeat(24));
 });
 
-await check("S2 one network signs up at most 100 times an hour on one sheet; the organizer is not counted", async () => { // pinned: round 3 S2
+await check("S2 one network signs up at most 500 times an hour on one sheet; the organizer is not counted", async () => { // pinned: round 3 S2
   const { id, key } = await made({ title: "Big", rows });
   const row = (await (await call(`/api/sheets/${id}`)).json()).sheet.rows[0].id;
   const codes = [];
-  for (let i = 0; i < 101; i++) codes.push((await call(`/api/sheets/${id}/signups`, { method: "POST", body: { row, name: "P" + i, token: "q".repeat(19) + (i % 9) } })).status);
-  assert.ok(codes.slice(0, 100).every((c) => c === 200), "first 100"); // pinned: round 3 S2, PER_NET_HOUR 100
-  assert.equal(codes[100], 429);
+  for (let i = 0; i < 501; i++) codes.push((await call(`/api/sheets/${id}/signups`, { method: "POST", body: { row, name: "P" + i, token: "q".repeat(19) + (i % 9) } })).status);
+  assert.ok(codes.slice(0, 500).every((c) => c === 200), "first 500"); // pinned: second pass S2-4, PER_NET_HOUR 500
+  assert.equal(codes[500], 429);
   assert.equal((await call(`/api/sheets/${id}/signups`, { method: "POST", body: { row, name: "Org" }, headers: { "X-Sheet-Key": key } })).status, 200);
   assert.equal((await call(`/api/sheets/${id}/signups`, { method: "POST", body: { row, name: "Other home" }, headers: { "CF-Connecting-IP": "198.51.100.7" } })).status, 200);
 });

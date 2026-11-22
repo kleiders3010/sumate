@@ -31,7 +31,7 @@ const IDLE_MS = 10 * 60 * 1000;
 const MAX_BODY = worker.sizes().MAX_SYNC + 1024; // the biggest copy the other server sends (one budget for every hop, round 3 S2)
 const NEW_PER_MINUTE = 30; // sheets one address may make in a minute
 const WRITES_PER_MINUTE = 300; // changes one address may make in a minute
-const READS_PER_MINUTE = 120; // reads of a sheet one address may make in a minute (round 3, S3; the Worker's READS)
+const READS_PER_MINUTE = 600; // reads of a sheet one address may make in a minute (round 3, S3; the Worker's READS; S2-4)
 mkdirSync(DATA, { recursive: true });
 // how busy this server is goes only to whoever has the ops key (data/ops-key; the deploy's "is anyone online?"),
 // everyone else hears "ok" (audit R17)
@@ -216,7 +216,15 @@ const over = (kind, ip, max) => {
 // ---- http ----
 
 const server = http.createServer(async (req, res) => {
-  const path = (req.url || "/").split("?")[0];
+  // the path as it is served (a URL folds "\", "/./" and "/../"), so it is counted the way it is served: counting the
+  // raw text let /api/./sheets walk past every limit (second-pass S2-6); one that changes on parsing is refused
+  const raw = (req.url || "/").split("?")[0];
+  let path;
+  try { path = new URL(raw, "http://sumate").pathname; } catch { path = ""; }
+  if (path !== raw) {
+    res.writeHead(404, { "content-type": "application/json", "Access-Control-Allow-Origin": "*" });
+    return res.end(JSON.stringify({ error: "not found" }));
+  }
   const cors = { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" };
   if (path === "/api/health" || path === "/health") {
     res.writeHead(200, { "content-type": "application/json", ...cors });
@@ -254,7 +262,7 @@ const server = http.createServer(async (req, res) => {
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
     headers.set("cf-connecting-ip", addr); // what the sheet code counts by: the address the door stated, not one a visitor sends
     const body = chunks.length && req.method !== "GET" && req.method !== "HEAD" ? Buffer.concat(chunks) : undefined;
-    const r = await worker.default.fetch(new Request("http://sumate" + (req.url || "/"), { method: req.method, headers, body }), ENV);
+    const r = await worker.default.fetch(new Request("http://sumate" + path + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""), { method: req.method, headers, body }), ENV);
     const out = {};
     r.headers.forEach((v, k) => (out[k] = v));
     if (path.startsWith("/api/sync/") && r.status === 200) kick();

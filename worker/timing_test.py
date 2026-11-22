@@ -117,7 +117,7 @@ with sync_playwright() as p:
     check(ana.inner_text("#closedNote") != note and ana.locator("#srows .join").count() == 0,
           "once closed the page says so by itself")
     check(ana.locator("#srows .person.me .x").count() == 0, "a final list: no removing herself")
-    tok = sheet_token(ana.evaluate("localStorage.getItem('sumate.token')") or "", sid)
+    tok = sheet_token(ana.evaluate("localStorage.getItem('sumate.secret')") or "", sid)
     st, v = call("GET", f"/api/sheets/{sid}", headers={"X-Sign-Tokens": tok})
     mine = [e for e in v["entries"] if e.get("mine")]
     st, r = call("DELETE", f"/api/sheets/{sid}/signups/{mine[0]['id'] if mine else 'zzzzzzzz'}", headers={"X-Sign-Tokens": tok})

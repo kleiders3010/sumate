@@ -38,8 +38,9 @@ namespace_id = "2104"
 simple = { limit = 300, period = 60 }
 
 # reads of a sheet, per address (safety round 3, S3): each one wakes a billed sheet; an open tab asks at most
-# every 8 s (8 a minute), so 120 is many tabs on one home line
+# every 8 s (8 a minute). 600 is 75 open tabs behind one school, office or mobile network (second-pass S2-4: 120 was
+# 16 tabs, and a class saw "Too many tries"). What one address can spend in a day is item 46's edge rule.
 [[ratelimits]]
 name = "READS"
 namespace_id = "2105"
-simple = { limit = 120, period = 60 }
+simple = { limit = 600, period = 60 }

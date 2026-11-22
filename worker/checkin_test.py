@@ -43,7 +43,7 @@ with sync_playwright() as p:
         {"text": "Door", "need": 2}, {"text": "Kitchen"}, {"text": "Next year", "date": "2099-06-01"}]}, None])
     sid, key = made["id"], made["key"]
     rows = o.evaluate(API, [f"/api/sheets/{sid}", "GET", None, None])[1]["sheet"]["rows"]
-    secret = {n: n[0].lower() * 20 for n in ["Ana", "Beto", "Caro", "Dani", "Eva"]}
+    secret = {n: n[0].lower() * 24 for n in ["Ana", "Beto", "Caro", "Dani", "Eva"]}  # sumate.secret: 24 letters (S2-8)
     tok = {n: sheet_token(secret[n], sid) for n in secret}
     for n, r in [("Ana", 0), ("Beto", 0), ("Caro", 0), ("Dani", 1), ("Eva", 2)]:
         o.evaluate(API, [f"/api/sheets/{sid}/signups", "POST", {"row": rows[r]["id"], "name": n, "token": tok[n]}, None])
@@ -151,7 +151,7 @@ with sync_playwright() as p:
     o.wait_for_selector("#srows .srow")
     d = page("es-AR")
     d.goto(SITE + "/")
-    d.evaluate(f"localStorage['sumate.token'] = '{secret['Dani']}'")
+    d.evaluate(f"localStorage['sumate.secret'] = '{secret['Dani']}'")
     d.goto(f"{SITE}/s/{sid}")
     d.wait_for_selector("#srows .selfIn")
     check(d.get_attribute("#srows .selfIn", "aria-pressed") == "false" and d.evaluate("document.documentElement.lang") == "es", f"Dani gets a button (Spanish page: {d.inner_text('#srows .selfIn')!r})")
@@ -162,7 +162,7 @@ with sync_playwright() as p:
         d.screenshot(path=f"{SHOTS}/checkin-self-es.png", full_page=True)
     e = page()
     e.goto(SITE + "/")
-    e.evaluate(f"localStorage['sumate.token'] = '{secret['Eva']}'")
+    e.evaluate(f"localStorage['sumate.secret'] = '{secret['Eva']}'")
     e.goto(f"{SITE}/s/{sid}")
     e.wait_for_selector("#srows .person.me")
     check(e.locator("#srows .selfIn").count() == 0, "Eva's line is next year: no button yet")

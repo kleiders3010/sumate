@@ -232,6 +232,7 @@ const DICT = {
     "That one is full: the person you pick takes this spot.": "Ese está completo: la persona que elijas pasa a este lugar.",
     "Saved": "Guardado",
     "This browser's storage is full, so it can't remember this sheet. Keep its link somewhere safe.": "El almacenamiento del navegador está lleno y no puede recordar esta lista. Guardá su enlace en un lugar seguro.",
+    "This browser's storage is full: after a reload it can't change or remove the names it put down.": "El almacenamiento del navegador está lleno: después de recargar no va a poder cambiar ni quitar los nombres que anotó.",
     "Moved you to {line}": "Te pasamos a {line}",
     "Moved {name} to {line}": "Pasaste a {name} a {line}",
     "{a} and {b} traded places": "{a} y {b} cambiaron de lugar",

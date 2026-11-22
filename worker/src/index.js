@@ -27,7 +27,8 @@ const MAX_SYNC = 1536 * 1024;
 // (a module of a Worker may export only functions and classes)
 export const sizes = () => ({ MAX_BYTES, MAX_SYNC });
 // sign-ups one network may add to one sheet in an hour (the organizer and check-in helpers are not counted)
-const PER_NET_HOUR = 100;
+// 500: a whole school or event on one network signs up in an hour (second-pass S2-4: 100 stopped a school sheet)
+const PER_NET_HOUR = 500;
 const AHEAD_MS = 5 * 60e3; // a time from the other server more than this ahead of this one's clock is taken as now + this
 // the organizer's own questions on signing up (like SignUpGenius' custom questions): a short answer or one of a few
 // choices, each required or not; the answers go to the organizer (and the person who gave them), never to everyone
@@ -44,8 +45,10 @@ function isZone(v) {
   if (typeof v !== "string" || !/^[A-Za-z0-9_+\-/]{1,64}$/.test(v)) return false;
   try { new Intl.DateTimeFormat("en", { timeZone: v }); return true; } catch { return false; }
 }
-// the other server is down: try again after these (at most 5 minutes apart, so the copies agree soon after it is back)
-const RETRY_MS = [15e3, 30e3, 60e3, 2 * 60e3, 5 * 60e3];
+// the other server is down: try again after these. Quick at first, so the copies agree soon after a short outage; then
+// slower, down to 4 tries a day, so a copy the other server won't take can't spend the day's budget (second-pass S2-1:
+// it was every 5 minutes for 90 days). A new change on either side sends again at once whatever the count.
+const RETRY_MS = [15e3, 30e3, 60e3, 2 * 60e3, 5 * 60e3, 15 * 60e3, 60 * 60e3, 6 * 3600e3];
 
 const cors = {
   "Cache-Control": "no-store",
@@ -69,10 +72,13 @@ const str = (v, n) => String(v ?? "").replace(/[\u0000-\u0009\u000b-\u001f\u007f
 // A name as others see it (audit R17): no control characters, no marks that flip the text's direction or hide in
 // it (so "Ana" can't be made to look like someone else), spaces folded. The joiner inside an emoji (a family, a
 // rainbow flag) stays. Same rule in Ronda, Juntos and Sumate.
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\u3164\ufeff\uffa0\ufff9-\ufffb]/g;
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u180e\u200b\u200c\u200e\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u206f\u2800\u3164\ufeff\uffa0\ufff9-\ufffb]|\udb40[\udc00-\udc7f]/g;
 const LONE_JOINER = /(?<![\p{Extended_Pictographic}\p{Emoji_Modifier}\ufe0f])\u200d|\u200d(?!\p{Extended_Pictographic})/gu;
 export const cleanName = (v, n) => String(v ?? "").replace(/\s+/g, " ").replace(INVISIBLE, "").replace(LONE_JOINER, "").replace(/ {2,}/g, " ").trim().slice(0, n);
 const line = (v, n) => cleanName(str(v, n + 20), n);
+// Text of several lines that others see (the details): each line through the name cleaner, the line breaks kept, and
+// U+2028, U+2029 and U+0085 taken as line breaks too (some calendar programs do; second-pass S2-12)
+export const cleanText = (v, n) => String(v ?? "").slice(0, n + 500).split(/\r\n|[\n\r\u2028\u2029\u0085]/).map((l) => cleanName(l, n)).join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, n);
 const isId = (v, a, b) => typeof v === "string" && new RegExp(`^[a-z0-9]{${a},${b}}$`).test(v);
 
 export function randomToken(n = 24) {
@@ -116,7 +122,7 @@ export function cleanSheet(s) {
   const closes = isMoment(s.closes) && s.closes > opens ? s.closes : 0;
   return {
     title,
-    details: str(s.details, 2000).replace(/\n{3,}/g, "\n\n"),
+    details: cleanText(s.details, 2000),
     rows,
     showNames: s.showNames !== false,
     open: s.open !== false,
@@ -404,8 +410,10 @@ export class Sheet {
     if (this.d === undefined) {
       this.loading ||= (async () => {
         const d = (await this.state.storage.get("d")) ?? null;
+        const tries = (await this.state.storage.get("t")) || 0; // failed sends, kept apart from the sheet (S2-1)
         if (this.d !== undefined) return;
         this.d = d;
+        if (d && tries > (d.tries || 0)) d.tries = tries;
         if (d && d.v === undefined) { // a sheet from before the second server: send it over
           Object.assign(d, { v: 1, sent: 0, sheetAt: d.changed || 0, gone: [] });
           await this.state.storage.put("d", d);
@@ -462,14 +470,24 @@ export class Sheet {
       if (!back) throw new Error("sync answer");
       if (this.d !== d || d.v !== v) return; // changed again meanwhile: the next send carries it
       const merged = mergeCopies(d, back);
+      if (merged.deleted) {
+        // replaced, never laid over: a deleted sheet keeps no title, line or name here either (second-pass S2-3)
+        const nv = d.v + 1;
+        this.d = { ...merged, changed: Math.max(merged.changed, back.changed), v: nv, sent: nv, tries: 0 };
+        try { await this.state.storage.put("d", this.d); } catch (e) { console.error("sumate: keeping a copy failed:", e && e.message); }
+        return;
+      }
       if (content(merged) !== content(d)) Object.assign(d, merged, { v: d.v + 1 });
       d.changed = Math.max(d.changed, back.changed);
       d.sent = d.v;
       d.tries = 0;
     } catch {
+      // a failed try writes only its count, never the whole sheet again (S2-1)
       d.tries = (d.tries || 0) + 1;
+      try { await this.state.storage.put("t", d.tries); } catch {}
+      return;
     }
-    try { await this.state.storage.put("d", d); } catch (e) { console.error("sumate: keeping a copy failed:", e && e.message); }
+    try { await this.state.storage.put("d", d); await this.state.storage.delete("t"); } catch (e) { console.error("sumate: keeping a copy failed:", e && e.message); }
   }
 
   copy() {
@@ -482,7 +500,9 @@ export class Sheet {
     if (!this.peer) return "none";
     try {
       const r = await fetch(`${this.peer}/api/sync/${id}`, { headers: { ...peerAddr(id), ...(await syncHeaders(this.env.SYNC_KEY, "GET", id)) }, signal: AbortSignal.timeout(8000) });
-      if (r.status === 404) return "none";
+      // only Sumate's own answer means "no such sheet"; a 404 from something on the way (the game host's door, a
+      // changed path) is "don't know", or the app would forget a sheet that exists (second-pass S2-9)
+      if (r.status === 404) return (await r.json().catch(() => null))?.error === "gone" ? "none" : "unknown";
       if (!r.ok) return "unknown";
       const d = cleanCopy(await r.json(), id);
       if (!d) return "unknown";
@@ -652,7 +672,7 @@ export class Sheet {
       const asks = d.sheet.asks || [];
       const ans = cleanAnswers(b?.ans, asks);
       // pinned: a required question must be answered, except when the organizer adds someone
-      if (!staff && asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
+      if (!staff && asks.some((q) => q.req && !(Object.hasOwn(ans, q.id) && ans[q.id]))) return json({ error: "answer" }, 400);
       const now = Date.now();
       const entry = { id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: now,
         ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}), ...(staff && b?.here ? { here: now, hereAt: now, walk: 1 } : {}) };
@@ -745,7 +765,7 @@ export class Sheet {
         if (moved || qty > qtyOf(e)) { const why = shut(d.sheet, to); if (why) return json({ error: why }, 409); }
         // pinned: the most one person may take counts their other sign-ups, not this one
         if ((moved || qty > qtyOf(e)) && mostFor(d.sheet, to, d.entries.filter((x) => x !== e && tokens.includes(x.token))) < qty) return json({ error: "limit" }, 409);
-        if (asks.some((q) => q.req && !ans[q.id])) return json({ error: "answer" }, 400);
+        if (asks.some((q) => q.req && !(Object.hasOwn(ans, q.id) && ans[q.id]))) return json({ error: "answer" }, 400);
       }
       // pinned: moving (or taking more) needs room there: nobody is pushed onto a waiting list, nor jumps one
       if (to.need && (moved || qty > qtyOf(e))) {
@@ -800,7 +820,10 @@ export class Sheet {
     // a new organizer link: the old one stops working on both servers (round 3, S7: one pasted in the wrong place)
     if (rest === "/key" && req.method === "POST") {
       if (!this.isOwner(req)) return json({ error: "not yours" }, 403);
-      d.key = randomToken(24);
+      // the organizer's device makes the new key and keeps it before asking (second-pass S2-5): if this answer is lost,
+      // the device still has the key the sheet now takes, and asks with it
+      const asked = (await readJson(req, MAX_BODY).catch(() => null))?.key;
+      d.key = isId(asked, 24, 24) ? asked : randomToken(24);
       d.keyAt = Math.max(Date.now(), (d.keyAt || 0) + 1);
       await this.save();
       const h = new Headers(req.headers);

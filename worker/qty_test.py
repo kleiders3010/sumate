@@ -81,7 +81,7 @@ with sync_playwright() as p:
     cards = ana.locator("#srows .srow")
     check(all(cards.nth(i).locator(".join").count() == 0 and cards.nth(i).locator(".shut").count() == 1 for i in range(2)),
           "at her limit no line offers Sign up, and each says why")
-    tok = sheet_token(ana.evaluate("localStorage['sumate.token']"), sid)
+    tok = sheet_token(ana.evaluate("localStorage['sumate.secret']"), sid)
     rows = o.evaluate(API, [f"/api/sheets/{sid}", "GET", None, None])[1]["sheet"]["rows"]
     st = ana.evaluate(API, [f"/api/sheets/{sid}/signups", "POST", {"row": rows[0]["id"], "name": "Ana", "token": tok, "qty": 1}, None])
     check(st[0] == 409 and st[1].get("error") == "limit", f"the server refuses past the limit too ({st[0]} {st[1].get('error')})")  # pinned: the error code the app maps

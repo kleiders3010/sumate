@@ -1,4 +1,4 @@
-# The code a device sends on one sheet, made from its secret (localStorage sumate.token) the way web/app.js tokenFor
+# The code a device sends on one sheet, made from its secret (localStorage sumate.secret since second-pass S2-8; sumate.token before) the way web/app.js tokenFor
 # does it: HMAC-SHA256(secret, "sumate-sheet|" + sheet id), its first 20 bytes as letters (safety round 3, S5).
 import hashlib
 import hmac

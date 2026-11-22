@@ -30,25 +30,53 @@ function deviceToken() {
   if (!/^[a-z0-9]{20}$/.test(tok || "")) {
     const a = crypto.getRandomValues(new Uint8Array(20));
     tok = [...a].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
-    safeSet("sumate.token", tok);
+    // (a save that holds a key says when it fails, APP-RULES safety 113: without it this browser can't change or
+    // remove its sign-ups after a reload)
+    if (!safeSet("sumate.token", tok) && !deviceToken.told) {
+      deviceToken.told = true;
+      toast(t("This browser's storage is full: after a reload it can't change or remove the names it put down."));
+    }
   }
   return tok;
 }
-// The device's secret. Each sheet gets its own code made from it (safety round 3, S5: one code for every sheet let
-// whoever reads the servers join one person's sign-ups across sheets). Sign-ups from before carry the secret itself:
-// on those sheets it is sent too (X-Sign-Old) until the server says none are left.
+// The device's old code (safety round 3, S5): sign-ups from before 21 Nov carry it itself, and on those sheets it is
+// sent too (X-Sign-Old) until the server says none are left. It is stored on the servers with those sign-ups.
+const HAD_OLD = /^[a-z0-9]{20}$/.test(safeGet("sumate.token") || "");
 const SECRET = deviceToken();
+// The secret each sheet's own code is made from (second-pass S2-8): a new one, never sent or stored anywhere but here,
+// because codes made from the old one could be worked out by whoever reads the servers. Sheets this device already
+// knew when it got the new secret ("lg") keep sending the code made the old way too, so their sign-ups stay theirs.
+function sheetSecret() {
+  const have = safeGet("sumate.secret");
+  if (/^[a-z0-9]{24}$/.test(have || "")) return have;
+  const s = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+  if (!safeSet("sumate.secret", s)) return SECRET; // nowhere to keep a new one: the old way, as before
+  if (HAD_OLD) safeSet("sumate.sheets", JSON.stringify(mySheets().map((x) => ({ ...x, lg: 1 }))));
+  return s;
+}
+const SECRET2 = sheetSecret();
 const tokens = new Map();
+async function codeFrom(secret, id) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode("sumate-sheet|" + id)));
+  return [...sig.slice(0, 20)].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+}
+/** This sheet's code (what a new sign-up carries). */
 async function tokenFor(id) {
   if (tokens.has(id)) return tokens.get(id);
-  let tok = SECRET;
-  try {
-    const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode("sumate-sheet|" + id)));
-    tok = [...sig.slice(0, 20)].map((b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
-  } catch {}
+  let tok = SECRET2;
+  try { tok = await codeFrom(SECRET2, id); } catch {}
   tokens.set(id, tok);
   return tok;
+}
+/** Every code that may be on this device's sign-ups here: this sheet's, and on sheets known before the new secret the
+ * one made the old way. */
+async function tokensFor(id) {
+  const mine = [await tokenFor(id)];
+  if (SECRET2 !== SECRET && mySheets().find((x) => x.id === id)?.lg) {
+    try { mine.push(await codeFrom(SECRET, id)); } catch {}
+  }
+  return mine.join(",");
 }
 
 function mySheets() {
@@ -150,7 +178,7 @@ try { at = Math.min(Number(sessionStorage.getItem("sumate.server")) || 0, SERVER
 async function api(path, opts = {}, id, as = null) {
   const headers = {};
   if (id) {
-    headers["X-Sign-Tokens"] = await tokenFor(id);
+    headers["X-Sign-Tokens"] = await tokensFor(id);
     const s = mySheets().find((x) => x.id === id);
     if (s && !s.t2) headers["X-Sign-Old"] = SECRET;
   }
@@ -247,8 +275,26 @@ async function claimKey(id, kind, val) {
   const v = await api("/api/sheets/" + id, {}, id, kind === "k" ? { key: val } : { door: val });
   const ok = kind === "k" ? v.owner : v.door;
   if (ok) return rememberSheet(id, kind === "k" ? { key: val } : { door: val });
-  if (v.error && v.status !== 404 && !has) return rememberSheet(id, kind === "k" ? { key: val } : { door: val });
+  // no server to ask: kept apart, never sent in place of a key, and asked about once a server answers (second-pass
+  // S2-10: a made-up key kept unasked was sent instead of the real check-in key, which then got erased)
+  if (v.error && v.status !== 404 && !has) return rememberSheet(id, kind === "k" ? { pkey: val } : { pdoor: val });
   if (!v.error) toast(kind === "k" ? t("This organizer link doesn't work (any more). Ask whoever made the sheet.") : t("This check-in link was turned off or replaced. Ask the organizer for the new one."));
+}
+
+/** A key from a link that no server could check yet: asked about now that one answers, then kept or dropped. */
+async function checkPending(id) {
+  const s = mySheets().find((x) => x.id === id);
+  if (!s || (!s.pkey && !s.pdoor && !s.nkey)) return;
+  const { pkey, pdoor, nkey } = s;
+  rememberSheet(id, { pkey: "", pdoor: "" });
+  // a new organizer link whose answer never came (S2-5): the sheet decides, the old key stays until it does
+  if (nkey) {
+    const v = await api("/api/sheets/" + id, {}, id, { key: nkey });
+    if (v.owner) rememberSheet(id, { key: nkey, nkey: "" });
+    else if (!v.error) rememberSheet(id, { nkey: "" });
+  }
+  if (pkey) await claimKey(id, "k", pkey);
+  if (pdoor) await claimKey(id, "d", pdoor);
 }
 
 // ---------- home ----------
@@ -582,7 +628,8 @@ $("#delSheet").onclick = async () => {
     return;
   }
   const r = await api("/api/sheets/" + editId, { method: "DELETE" }, editId);
-  if (r.error && r.status !== 404) return showMsg("#editMsg", errText(r.error));
+  // only the sheet's own "gone" means it is no more; any other 404 is something on the way (second-pass S2-9)
+  if (r.error && !(r.status === 404 && r.error === "gone")) return showMsg("#editMsg", errText(r.error));
   forgetSheet(editId);
   dropCopy(editId);
   toast(t("Sheet deleted"));
@@ -593,7 +640,7 @@ $("#delSheet").onclick = async () => {
 async function openSheet(id, quiet = false) {
   if (EMBED) $("#openFull").href = sheetUrl(id);
   let v = await api("/api/sheets/" + id, {}, id);
-  if (v.error && v.status === 404) {
+  if (v.error === "gone" && v.status === 404) {
     if (!quiet) { forgetSheet(id); dropCopy(id); show("gone"); }
     return;
   }
@@ -624,6 +671,7 @@ async function openSheet(id, quiet = false) {
     show("sheet");
     poll(id);
   }
+  if (known?.pkey || known?.pdoor || known?.nkey) checkPending(id).then(() => { if (keyFor(id) || doorFor(id)) openSheet(id, true); });
 }
 // How often an open sheet asks for news (round 3, S3: every 8 s in every open tab spent Cloudflare's daily
 // allowance): every 8 s while things change, then every 20 s, then every minute once nothing has changed for 10
@@ -813,7 +861,7 @@ async function markHere(e, on, then) {
 let doorQuery = "";
 async function openDoor(id, quiet = false) {
   const v = await api("/api/sheets/" + id, {}, id);
-  if (v.error && v.status === 404) { if (!quiet) show("gone"); return; }
+  if (v.error === "gone" && v.status === 404) { if (!quiet) show("gone"); return; }
   if (v.error) { showMsg("#doorMsg", errText(v.error)); if (!quiet) { show("door"); pollDoor(id); } return; }
   current = v;
   if (v.now) skew = v.now - Date.now();
@@ -1188,9 +1236,20 @@ $("#keyNew").onclick = async () => {
   delete b.dataset.sure;
   b.textContent = t("New organizer link (the old one stops working)");
   const id = current.id;
-  const r = await api(`/api/sheets/${id}/key`, { method: "POST" }, id);
-  if (r.error || !r.key) return toast(errText(r.error));
-  rememberSheet(id, { key: r.key });
+  // the new key is made here and kept before asking (second-pass S2-5): a lost answer can't leave the sheet with a key
+  // nobody has. If no answer comes, the sheet is asked with the new key (now, and when the app opens it next).
+  const nkey = [...crypto.getRandomValues(new Uint8Array(24))].map((x) => "abcdefghijkmnpqrstuvwxyz23456789"[x % 32]).join("");
+  rememberSheet(id, { nkey });
+  let r = await api(`/api/sheets/${id}/key`, { method: "POST", body: { key: nkey } }, id);
+  if (r.error || !r.key) {
+    const v = await api("/api/sheets/" + id, {}, id, { key: nkey });
+    if (!v.owner) {
+      if (!v.error) rememberSheet(id, { nkey: "" }); // a server answered: the old key still holds
+      return toast(errText(r.error));
+    }
+    r = { key: nkey, view: v };
+  }
+  rememberSheet(id, { key: r.key, nkey: "" });
   current = r.view;
   keepCopy(id, current);
   openShare();

@@ -24,9 +24,11 @@ const MAX_BODY = 64 * 1024;
 // stored value.
 const MAX_BYTES = 500 * 1024;
 const MAX_SYNC = 1536 * 1024;
+// at most this as Cloudflare stores it (2 bytes a UTF-16 unit at worst), so two full copies merged stay under 2 MB
+const MAX_STORED = 900 * 1024;
 // (a module of a Worker may export only functions and classes)
-export const sizes = () => ({ MAX_BYTES, MAX_SYNC });
-// sign-ups one network may add to one sheet in an hour (the organizer and check-in helpers are not counted)
+export const sizes = () => ({ MAX_BYTES, MAX_SYNC, MAX_STORED, MAX_BODY });
+// sign-ups one network may add to one sheet in an hour (the organizer is not counted; check-in helpers are, S2-7b)
 // 500: a whole school or event on one network signs up in an hour (second-pass S2-4: 100 stopped a school sheet)
 const PER_NET_HOUR = 500;
 const AHEAD_MS = 5 * 60e3; // a time from the other server more than this ahead of this one's clock is taken as now + this
@@ -197,7 +199,7 @@ export function cleanCopy(d, id) {
     seen.add(e.id);
     const ans = cleanAnswers(e.ans, sheet.asks);
     entries.push({ id: e.id, row: e.row, name, note: line(e.note, 200), token: e.token, at: tm(e.at), ...(Object.keys(ans).length ? { ans } : {}),
-      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e, tm), ...(e.walk ? { walk: 1 } : {}),
+      ...(qtyOf(e) > 1 ? { qty: Math.min(MAX_QTY, qtyOf(e)) } : {}), ...hereOf(e, tm), ...(e.walk ? { walk: 1 } : {}), ...(e.byDoor ? { byDoor: 1 } : {}),
       ...(tm(e.editAt) > 0 ? { editAt: tm(e.editAt) } : {}) });
   }
   const door = isId(d.door, 24, 24) ? d.door : "";
@@ -299,8 +301,14 @@ export async function syncHeaders(key, method, id, body = "") {
 }
 async function syncOk(req, env, id, body) {
   const time = req.headers.get("X-Sync-Time") || "";
-  if (!env.SYNC_KEY || !/^\d{13}$/.test(time) || Math.abs(Date.now() - Number(time)) > AHEAD_MS) return false;
-  return same(req.headers.get("X-Sync-Sig"), await syncSig(env.SYNC_KEY, req.method, id, time, body));
+  if (!env.SYNC_KEY || !/^\d{13}$/.test(time)) return false;
+  const ok = same(req.headers.get("X-Sync-Sig"), await syncSig(env.SYNC_KEY, req.method, id, time, body));
+  // the two clocks, said out loud (second-pass S2-11): a refusal between our servers always leaves a line with its
+  // reason, and a signed copy from a clock more than a minute off is logged even when it is taken
+  const gap = Date.now() - Number(time);
+  if (ok && Math.abs(gap) > 60e3) console.error(`sumate: the other server's clock is ${Math.round(gap / 1000)} s ${gap > 0 ? "behind" : "ahead"}${Math.abs(gap) > AHEAD_MS ? ": copies refused" : ""}`);
+  if (!ok) console.error("sumate: a copy with a wrong signature was refused");
+  return ok && Math.abs(gap) <= AHEAD_MS;
 }
 
 // per address (one hash of it, IPv6 by its /64): 30 new sheets, 300 changes and 120 reads a minute (wrangler.toml
@@ -431,6 +439,7 @@ export class Sheet {
     this.d.v = (this.d.v || 0) + 1;
     this.d.tries = 0;
     await this.state.storage.put("d", this.d);
+    if (this.d.deleted) { this.nets?.clear(); try { await this.state.storage.delete("nets"); } catch {} } // nothing of a deleted sheet stays
     await this.plan();
   }
 
@@ -474,16 +483,18 @@ export class Sheet {
         // replaced, never laid over: a deleted sheet keeps no title, line or name here either (second-pass S2-3)
         const nv = d.v + 1;
         this.d = { ...merged, changed: Math.max(merged.changed, back.changed), v: nv, sent: nv, tries: 0 };
-        try { await this.state.storage.put("d", this.d); } catch (e) { console.error("sumate: keeping a copy failed:", e && e.message); }
+        this.nets?.clear();
+      try { await this.state.storage.put("d", this.d); await this.state.storage.delete("nets"); } catch (e) { console.error("sumate: keeping a copy failed:", e && e.message); }
         return;
       }
       if (content(merged) !== content(d)) Object.assign(d, merged, { v: d.v + 1 });
       d.changed = Math.max(d.changed, back.changed);
       d.sent = d.v;
       d.tries = 0;
-    } catch {
-      // a failed try writes only its count, never the whole sheet again (S2-1)
+    } catch (e) {
+      // a failed try writes only its count, never the whole sheet again (S2-1), and says why once in a while (S2-11)
       d.tries = (d.tries || 0) + 1;
+      if (d.tries === 1 || d.tries % 8 === 0) console.error(`sumate: the other server didn't take a copy (try ${d.tries}): ${e && e.message}`);
       try { await this.state.storage.put("t", d.tries); } catch {}
       return;
     }
@@ -528,20 +539,33 @@ export class Sheet {
 
   /** The sheet as it would be stored with `entries` (or as it is): within the size budget? (round 3, S2) */
   fits(entries = this.d.entries, sheet = this.d.sheet) {
-    return bytes(JSON.stringify({ ...this.copy(), entries, sheet })) <= MAX_BYTES;
+    const j = JSON.stringify({ ...this.copy(), entries, sheet });
+    // and in the form Cloudflare keeps it (second-pass S2-13c): a string with one letter past U+00FF is kept at two
+    // bytes a letter, so plain text with an emoji in it takes twice its JSON size; 2 bytes a UTF-16 unit is the most
+    return bytes(j) <= MAX_BYTES && j.length * 2 <= MAX_STORED;
   }
 
-  /** One network's sign-ups on this sheet this hour (in memory: a rough count, enough to stop one person filling it). */
-  overNet(req) {
+  /** One network's sign-ups on this sheet this hour. Counted in memory; a network that reaches the limit is written
+   * down with the sheet ("nets": the network's irreversible code, never the address) until its hour is up, so putting
+   * the sheet to sleep doesn't start its count again (second-pass S2-7a). */
+  async overNet(req) {
     const net = req.headers.get("X-Net") || "";
     if (!net) return false;
     const now = Date.now();
-    this.nets ||= new Map();
+    if (!this.nets) {
+      this.nets = new Map();
+      try { for (const [k, v] of Object.entries((await this.state.storage.get("nets")) || {})) if (now - v.since <= 3600e3) this.nets.set(k, v); } catch {}
+    }
     let n = this.nets.get(net);
     if (!n || now - n.since > 3600e3) n = { since: now, count: 0 };
     n.count++;
     this.nets.set(net, n);
     if (this.nets.size > 5000) for (const [k, v] of this.nets) if (now - v.since > 3600e3) this.nets.delete(k);
+    if (n.count === PER_NET_HOUR + 1) {
+      const keep = {};
+      for (const [k, v] of this.nets) if (v.count > PER_NET_HOUR && now - v.since <= 3600e3) keep[k] = v;
+      try { await this.state.storage.put("nets", keep); } catch {}
+    }
     return n.count > PER_NET_HOUR;
   }
 
@@ -573,7 +597,9 @@ export class Sheet {
           ...(qtyOf(e) > 1 ? { qty: qtyOf(e) } : {}),
           ...(waits.has(e.id) ? { wait: waits.get(e.id) } : {}),
           // pinned: who came is seen by the organizer, the check-in helpers and the person themselves, not everyone
-          ...((door || isMine) && e.here ? { here: e.here } : {}) };
+          ...((door || isMine) && e.here ? { here: e.here } : {}),
+          // added through the check-in link (S2-7b): the organizer's undo of a recent flood covers these too
+          ...(owner && e.byDoor ? { byDoor: 1 } : {}) };
       }),
     };
   }
@@ -675,11 +701,12 @@ export class Sheet {
       if (!staff && asks.some((q) => q.req && !(Object.hasOwn(ans, q.id) && ans[q.id]))) return json({ error: "answer" }, 400);
       const now = Date.now();
       const entry = { id: isId(b?.id, 8, 8) ? b.id : randomToken(8), row: row.id, name, note: line(b?.note, 200), token, at: now,
-        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}), ...(staff && b?.here ? { here: now, hereAt: now, walk: 1 } : {}) };
+        ...(Object.keys(ans).length ? { ans } : {}), ...(qty > 1 ? { qty } : {}), ...(staff && b?.here ? { here: now, hereAt: now, walk: 1 } : {}), ...(staff && !owner ? { byDoor: 1 } : {}) };
       // pinned: one sheet's size budget, so both servers can always copy it (round 3, S2)
       if (!this.fits([...d.entries, entry])) return json({ error: "big" }, 409);
-      // pinned: at most PER_NET_HOUR sign-ups from one network on one sheet in an hour, except the organizer's and helpers'
-      if (!staff && this.overNet(req)) return json({ error: "busy" }, 429);
+      // pinned: at most PER_NET_HOUR sign-ups from one network on one sheet in an hour, except the organizer's (second-pass
+      // S2-7b: the check-in link is shared with helpers, so what it adds has a budget like everyone's)
+      if (!owner && (await this.overNet(req))) return json({ error: "busy" }, 429);
       d.entries.push(entry);
       await this.save();
       return json({ token, view: this.view(withToken(req, token)) });

@@ -207,6 +207,7 @@ const DICT = {
     "No limit": "Sin límite",
     "Most one person can take on the sheet": "Lo máximo que puede tomar cada persona en la lista",
     "Most one person can take on each line": "Lo máximo que puede tomar cada persona en cada línea",
+  "Counted per phone or browser: someone using two devices counts twice.": "Se cuenta por teléfono o navegador: alguien que usa dos dispositivos cuenta dos veces.",
     "How many": "Cuántos",
     "{n} taken": "{n} tomados",
     "Up to {n} per person on this sheet": "Hasta {n} por persona en esta lista",

@@ -1260,7 +1260,7 @@ $("#keyNew").onclick = async () => {
 // sign-ups). Two taps; the organizer's own additions at the door are not touched.
 const recent = () => {
   const since = Date.now() + skew - Number($("#cleanSpan").value) * 3600e3;
-  return (current?.entries || []).filter((e) => e.at && e.at >= since && !e.here);
+  return (current?.entries || []).filter((e) => e.at && e.at >= since && (!e.here || e.byDoor)); // helpers' additions too (S2-7b)
 };
 function cleanLabel() {
   const b = $("#cleanGo");

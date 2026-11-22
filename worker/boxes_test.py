@@ -5,7 +5,7 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 from playwright.sync_api import sync_playwright
 
-SITE = sys.argv[1] if len(sys.argv) > 1 else "https://signup.jurisgames.com"
+SITE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8790"  # local by default (rule 21); the live site only when named
 errors = []
 
 

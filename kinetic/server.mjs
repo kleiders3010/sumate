@@ -29,6 +29,8 @@ const DATA = process.env.DATA_DIR || join(process.cwd(), "data");
 const MAX_HELD = 2000; // sheets held in memory at once (the rest stay on disk)
 const IDLE_MS = 10 * 60 * 1000;
 const MAX_BODY = worker.sizes().MAX_SYNC + 1024; // the biggest copy the other server sends (one budget for every hop, round 3 S2)
+// anything else is an app request: the sheet code takes at most its own MAX_BODY, so no more is read (second-pass S2-13d)
+const MAX_APP_BODY = worker.sizes().MAX_BODY + 1024;
 const NEW_PER_MINUTE = 30; // sheets one address may make in a minute
 const WRITES_PER_MINUTE = 300; // changes one address may make in a minute
 const READS_PER_MINUTE = 600; // reads of a sheet one address may make in a minute (round 3, S3; the Worker's READS; S2-4)
@@ -101,6 +103,11 @@ class Storage {
   }
   async get(k) {
     return clone(this.map.get(k));
+  }
+  // the sheet code removes small keys (the retry count "t", the network counts "nets"): before this it had no delete, so
+  // they stayed (found with second-pass S2-7a)
+  async delete(k) {
+    if (this.map.delete(k)) this.save();
   }
   async put(k, v) {
     // the file cap holds for every way a sheet arrives here: made here, copied from the other server, or fetched from it
@@ -249,9 +256,10 @@ const server = http.createServer(async (req, res) => {
   }
   const chunks = [];
   let size = 0;
+  const cap = path.startsWith("/api/sync/") ? MAX_BODY : MAX_APP_BODY;
   for await (const c of req) {
     size += c.length;
-    if (size > MAX_BODY) {
+    if (size > cap) {
       res.writeHead(413, cors);
       return res.end();
     }

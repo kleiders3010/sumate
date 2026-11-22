@@ -10,7 +10,7 @@ const check = async (what, fn) => {
 
 function stateOf() {
   const m = new Map();
-  return { m, storage: { get: async (k) => structuredClone(m.get(k)), put: async (k, v) => void m.set(k, structuredClone(v)), deleteAll: async () => m.clear(), setAlarm: async () => {}, getAlarm: async () => null } };
+  return { m, storage: { get: async (k) => structuredClone(m.get(k)), put: async (k, v) => void m.set(k, structuredClone(v)), delete: async (k) => void m.delete(k), deleteAll: async () => m.clear(), setAlarm: async () => {}, getAlarm: async () => null } };
 }
 
 await check("S2-3 a deletion that comes back as the answer to this server's copy leaves no title, line or name", async () => { // pinned: second pass S2-3
@@ -93,6 +93,66 @@ await check("S2-13a a required answer under the id \"constructor\" still has to 
   const q = v.sheet.asks[0].id;
   const r = await call(`/api/sheets/${id}/signups`, { method: "POST", body: { row: v.sheet.rows[0].id, name: "P", token: "q".repeat(20), ans: {} } });
   assert.equal(r.status, 400, "refused without the answer (question id " + q + ")");
+});
+
+await check("S2-7b what the check-in link adds has the per-network budget, and the organizer sees which ones it added", async () => { // pinned: second pass S2-7b
+  const { id, key } = await (await call("/api/sheets", { method: "POST", body: { title: "Door", rows: [{ text: "In" }] } })).json();
+  const row = (await (await call(`/api/sheets/${id}`)).json()).sheet.rows[0].id;
+  await call(`/api/sheets/${id}/door`, { method: "POST", headers: { "X-Sheet-Key": key } });
+  const door = (await (await call(`/api/sheets/${id}`, { headers: { "X-Sheet-Key": key } })).json()).doorKey;
+  assert.match(door || "", /^[a-z0-9]{24}$/, "the organizer gets the check-in link");
+  const add = (h, n) => call(`/api/sheets/${id}/signups`, { method: "POST", body: { row, name: "W" + n, here: true }, headers: { ...h, "X-Net": "net-1" } });
+  let last;
+  for (let n = 0; n <= 500; n++) last = await add({ "X-Door-Key": door }, n);
+  assert.equal(last.status, 429, "the 501st from the helpers' network is refused");
+  assert.equal((await add({ "X-Sheet-Key": key }, 999)).status, 200, "the organizer is not held to it");
+  const v = await (await call(`/api/sheets/${id}`, { headers: { "X-Sheet-Key": key } })).json();
+  assert.equal(v.entries.filter((e) => e.byDoor).length, 500);
+  assert.equal(v.entries.find((e) => e.name === "W999").byDoor, undefined);
+  const pub = await (await call(`/api/sheets/${id}`)).json();
+  assert.ok(pub.entries.every((e) => !e.byDoor), "only the organizer sees the mark");
+});
+
+await check("S2-7a a network at the limit stays limited after the sheet sleeps, and a deleted sheet keeps no count", async () => { // pinned: second pass S2-7a
+  const { id, key } = await (await call("/api/sheets", { method: "POST", body: { title: "Sleep", rows: [{ text: "In" }] } })).json();
+  const row = (await (await call(`/api/sheets/${id}`)).json()).sheet.rows[0].id;
+  const add = (n) => call(`/api/sheets/${id}/signups`, { method: "POST", body: { row, name: "S" + n }, headers: { "X-Net": "net-2" } });
+  let last;
+  for (let n = 0; n <= 500; n++) last = await add(n);
+  assert.equal(last.status, 429);
+  // the sheet object goes to sleep: a new one is made from what is stored
+  const old = sheets.get(id);
+  sheets.set(id, new Sheet(old.state, { SYNC_KEY: "s".repeat(40) }));
+  assert.equal((await add(600)).status, 429, "still refused after waking");
+  assert.ok(await old.state.storage.get("nets"), "the count is stored");
+  await call(`/api/sheets/${id}`, { method: "DELETE", headers: { "X-Sheet-Key": key } });
+  assert.equal(await old.state.storage.get("nets"), undefined, "a deleted sheet keeps no count");
+});
+
+await check("S2-13c two full copies merged stay under Cloudflare's 2 MB per value in the form it stores them", async () => { // pinned: second pass S2-13c
+  const v8 = await import("node:v8");
+  const { mergeCopies, cleanCopy } = await import("./src/index.js");
+  const id = "sizesheet2";
+  // worst case for the stored form: long plain text with one emoji, so every string is kept at two bytes a letter
+  const txt = (n, i) => ("x".repeat(n - 3) + i.toString(36).padStart(2, "0")).slice(0, n - 1) + "\u{1F600}".slice(0, 1).replace(/./, "\u00e9\u2603".slice(1));
+  const rows = Array.from({ length: 200 }, (_, i) => ({ id: "row" + String(i).padStart(5, "0"), text: txt(120, i), need: 50 }));
+  const full = (tag) => {
+    const s = new Sheet(stateOf(), {});
+    s.d = { id, key: "k".repeat(24), sheet: { title: txt(100, 1), details: txt(1900, 2), rows, showNames: true }, sheetAt: 1, entries: [], gone: [], changed: 1, v: 1, sent: 1 };
+    for (let i = 0; i < 6000; i++) {
+      const e = { id: (tag + i.toString(36)).padEnd(8, "z").slice(0, 8), row: rows[i % 200].id, name: txt(60, i), note: txt(200, i), token: (tag + "t" + i).padEnd(20, "q"), at: 1795000000000 + i, here: 1795000000000 + i, hereAt: 1795000000000 + i };
+      if (!s.fits([...s.d.entries, e])) break;
+      s.d.entries.push(e);
+    }
+    s.d.gone = Array.from({ length: 3000 }, (_, i) => (tag + "g" + i.toString(36)).padEnd(8, "y").slice(0, 8) + "~" + (1795000000000 + i).toString(36));
+    return s.copy();
+  };
+  const a = full("a"), b = full("b");
+  assert.ok(a.entries.length > 100, "a full copy has " + a.entries.length + " sign-ups");
+  const m = cleanCopy(mergeCopies(a, b), id);
+  const stored = v8.serialize(m).length;
+  console.log(`     ${a.entries.length} sign-ups a copy, merged ${m.entries.length}: ${Math.round(stored / 1024)} KB stored (one copy ${Math.round(v8.serialize(a).length / 1024)} KB)`);
+  assert.ok(stored <= 0.95 * 2 * 1024 * 1024, "under 95% of 2 MiB: " + stored);
 });
 
 console.log(failed ? `FAILED ${failed}` : "s2 OK");

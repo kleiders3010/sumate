@@ -244,6 +244,8 @@ const DICT = {
     "Name": "Nombre",
     "Note": "Nota",
     "When": "Cuándo",
+    "No connection. Sumate needs the internet to show and change sheets.": "Sin conexión. Sumate necesita internet para mostrar y cambiar las planillas.",
+    "Try again": "Reintentar",
   },
 };
 // only a language this app has (never "constructor" or "__proto__" from a link), and only that is remembered

@@ -131,7 +131,8 @@ function toast(text) {
   d.textContent = text;
   d.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (d.hidden = true), 2600);
+  // long enough to read: at least 5 s, more for long text (Juntos UX review U-J7)
+  toastTimer = setTimeout(() => (d.hidden = true), Math.max(5000, String(text).length * 70));
 }
 function showMsg(sel, text) {
   const m = $(sel);
@@ -1401,3 +1402,6 @@ $("#csvBtn").onclick = () => {
 };
 
 route();
+
+// the offline page (sw.js): opening the app with no connection shows ours, not the browser's error page
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});

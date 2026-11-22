@@ -180,3 +180,9 @@ body.embed .toast { position: absolute; bottom: auto; top: var(--toastAt, 24px);
 .selfIn { align-self: flex-start; }
 .selfIn.on { color: var(--accent); border-color: var(--accent); background: var(--accent2); }
 .srow .walkup { align-self: flex-start; padding-left: 0; }
+
+/* the page shown with no connection (sw.js) */
+.offlinePage { max-width: 420px; margin: 18vh auto 0; padding: 24px; text-align: center; display: grid; gap: 14px; justify-items: center; }
+.offlinePage h1 { margin: 0; }
+/* less motion when the system asks for it (Juntos UX review U-J24) */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

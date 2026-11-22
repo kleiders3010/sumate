@@ -130,7 +130,10 @@ const testHost = (u) => {
     const x = new URL(u);
     if (!/^(wss?|https?):$/.test(x.protocol)) return null;
     const h = x.hostname;
-    return (LOCAL.test(h) && LOCAL.test(location.hostname)) || /(^|\.)jurisgames\.com$/.test(h) || /\.invalid$/.test(h) ? u : null;
+    // only on a page served from this computer (APP-RULES safety 1; Juntos' audit, N12: on the live page a link could
+    // point someone at another of our servers or at nothing)
+    if (!LOCAL.test(location.hostname)) return null;
+    return LOCAL.test(h) || /(^|\.)jurisgames\.com$/.test(h) || /\.invalid$/.test(h) ? u : null;
   } catch { return null; }
 };
 const RP = new URLSearchParams(location.search);

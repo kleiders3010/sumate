@@ -171,8 +171,12 @@ const SERVERS = [
   RPG("server") || (location.hostname.endsWith(".github.io") ? "https://signup.jurisgames.com" : ""),
   RPG("server2") || (OURS && !RPG("server") ? "https://games.jurisgames.com/sumate" : null),
 ].filter((s) => s !== null);
-let at = 0;
-try { at = Math.min(Number(sessionStorage.getItem("sumate.server")) || 0, SERVERS.length - 1); } catch {}
+// the game host first when the page has both (item 46, Kleider: the unlimited route "should attempt do to the work
+// before touching the cloudflare limits"): every read it answers costs nothing of Cloudflare's daily allowance; only
+// its copy of a change goes to Cloudflare. Test pages that name their servers keep the order they name.
+const FIRST = SERVERS.length > 1 && !RPG("server") ? 1 : 0;
+let at = FIRST;
+try { const kept = sessionStorage.getItem("sumate.server"); if (kept !== null) at = Math.min(Number(kept) || 0, SERVERS.length - 1); } catch {}
 
 // `as`: a key to try instead of the one kept (a link's, checked before it is kept: round 3, S1)
 async function api(path, opts = {}, id, as = null) {

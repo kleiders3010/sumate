@@ -14,8 +14,12 @@ function stateOf() {
   return { storage: { get: async (k) => structuredClone(m.get(k)), put: async (k, v) => void m.set(k, structuredClone(v)), deleteAll: async () => m.clear(), setAlarm: async () => {} } };
 }
 const sheets = new Map();
+const OPEN = { limit: async () => ({ success: true }) }; // Cloudflare's limiters, never over in these checks
 const ENV = {
   SYNC_KEY: "s".repeat(40),
+  NEWS: OPEN,
+  WRITES: OPEN,
+  READS: OPEN,
   SHEETS: { idFromName: (n) => n, get: (n) => {
     if (!sheets.has(n)) sheets.set(n, new Sheet(stateOf(), { SYNC_KEY: "s".repeat(40) }));
     return { fetch: (u, i) => sheets.get(n).fetch(u instanceof Request ? u : new Request(u, i)) };
@@ -83,6 +87,19 @@ await check("S2 the organizer removes many at once; nobody else can", async () =
   assert.equal((await call(`/api/sheets/${id}/signups/remove`, { method: "POST", body: { ids } })).status, 403);
   const r = await (await call(`/api/sheets/${id}/signups/remove`, { method: "POST", body: { ids: ids.slice(0, 4) }, headers: { "X-Sheet-Key": key } })).json();
   assert.equal(r.entries.length, 1);
+});
+
+await check("S10 a missing or failing limiter refuses instead of running unlimited; the game host's own count is not doubled", async () => { // pinned: round 5 S10 fails closed
+  let woke = 0;
+  const sheetsStub = { idFromName: (n) => n, get: () => { woke++; return { fetch: () => new Response("{}") }; } };
+  const { READS, ...noReads } = ENV;
+  assert.equal((await call("/api/sheets/abcdefgh23", {}, { ...noReads, SHEETS: sheetsStub })).status, 429);
+  const broken = { limit: async () => { throw new Error("down"); } };
+  assert.equal((await call("/api/sheets/abcdefgh23", {}, { ...ENV, READS: broken, SHEETS: sheetsStub })).status, 429);
+  assert.equal(woke, 0);
+  const { NEWS, WRITES, ...none } = noReads;
+  assert.notEqual((await call("/api/sheets/abcdefgh23", {}, { ...none, LIMITS: "host", SHEETS: sheetsStub })).status, 429);
+  assert.equal(woke, 1);
 });
 
 await check("S3 reads are counted per address before any sheet is woken, and the app's own refusal is JSON", async () => { // pinned: round 3 S3

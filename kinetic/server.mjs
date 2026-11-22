@@ -161,6 +161,7 @@ async function fire(h) {
 // what the Worker expects of Cloudflare's Durable Object namespace, and its settings
 const ENV = {
   PEER: process.env.PEER ?? "https://signup.jurisgames.com",
+  LIMITS: "host", // this server counts new sheets, changes and reads itself (over(), before the sheet code runs)
   SYNC_KEY: key,
   SHEETS: {
     idFromName: (name) => name,

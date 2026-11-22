@@ -304,12 +304,16 @@ async function syncOk(req, env, id, body) {
 async function limited(req, env, url) {
   const sync = url.pathname.startsWith("/api/sync/");
   if (sync) return false;
+  // the game host counts the same limits itself before it calls this code (kinetic/server.mjs sets LIMITS "host")
+  if (env.LIMITS === "host") return false;
   const net = await netKey(req.headers.get("CF-Connecting-IP"));
+  // fails closed (safety round 5, S10): a missing binding or a limiter that errors counts as over the limit
   const over = async (lim) => {
+    if (!lim) return true;
     try {
-      return !!lim && !(await lim.limit({ key: net })).success;
+      return !(await lim.limit({ key: net })).success;
     } catch (_) {
-      return false;
+      return true;
     }
   };
   if (req.method === "GET") return url.pathname.startsWith("/api/sheets/") && over(env.READS);

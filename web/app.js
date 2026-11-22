@@ -1308,8 +1308,9 @@ $("#csvBtn").onclick = () => {
   const v = current;
 
   const cell = (x) => {
-    let s = String(x ?? "");
-    if (typeof x !== "number" && /^[=+\-@\t\r]/.test(s)) s = "'" + s; // keep spreadsheets from running it as a formula
+    let s = String(x ?? "").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+    // keep spreadsheets from running it as a formula, also after leading spaces or control characters (APP-RULES 70)
+    if (typeof x !== "number" && /^[=+\-@]/.test(s.replace(/^[\s\x00-\x1f]+/, ""))) s = "'" + s;
     return /[",\r\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const asks = v.sheet.asks || [];

@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8790"
 errors = []
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
     ctx = b.new_context(locale="en-US")
     a = ctx.new_page()
     a.on("pageerror", lambda e: errors.append("pageerror: " + str(e)))

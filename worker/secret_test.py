@@ -30,7 +30,7 @@ def call(method, path, body=None, headers=None):
 
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
     st, made = call("POST", "/api/sheets", {"title": "Potluck", "rows": [{"text": "Salad"}, {"text": "Bread"}]})
     sid = made["id"]
     rows = call("GET", f"/api/sheets/{sid}")[1]["sheet"]["rows"]

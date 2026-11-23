@@ -34,7 +34,7 @@ day1 = (date.today() + timedelta(days=3)).isoformat()
 day2 = (date.today() + timedelta(days=4)).isoformat()
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
 
     def page(**kw):
         pg = b.new_context(locale="en-US", **kw).new_page()

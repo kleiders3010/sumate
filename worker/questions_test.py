@@ -20,7 +20,7 @@ def check(ok, what):
 
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
 
     def page(**kw):
         pg = b.new_context(locale="en-US", accept_downloads=True, **PHONE, **kw).new_page()

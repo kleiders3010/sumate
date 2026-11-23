@@ -44,7 +44,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 OTHER = f"http://localhost:{srv.server_address[1]}/"
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
 
     def page(**kw):
         pg = b.new_context(locale="en-US", **kw).new_page()

@@ -32,7 +32,7 @@ API = """async ([path, method, body, headers]) => {
   return [r.status, await r.json()]; }"""
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
 
     def page(locale="en-US"):
         pg = b.new_context(locale=locale, **PHONE).new_page()

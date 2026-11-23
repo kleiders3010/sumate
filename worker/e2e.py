@@ -18,7 +18,7 @@ def watch(page, who):
     page.on("console", lambda m: m.type == "error" and errors.append(f"{who} console: {m.text}"))
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True)
+    b = p.chromium.launch(headless=True, args=["--disable-gpu"])
     org = b.new_context(locale="en-US", **PHONE)
     o = org.new_page(); watch(o, "org")
     o.goto(BASE + "/")

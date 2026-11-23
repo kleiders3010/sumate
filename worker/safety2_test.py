@@ -32,7 +32,7 @@ for f in sorted(os.listdir(WEB)):
             check(not re.search(r"localhost|127\.0\.0\.1|\[::1\]", csp.group(1)), f"J15 {f}: shipped CSP has no localhost")  # pinned: safety round 2 J15
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
 
     def tried_from(origin):
         """open a sheet on `origin` with both server switches pointed at this computer and return every address the

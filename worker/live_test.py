@@ -59,7 +59,7 @@ try:
     check(t is not None, f"a sign-up on the game host reaches Cloudflare ({t and round(t)} s)")
 
     with sync_playwright() as p:
-        b = p.chromium.launch(headless=True, channel="msedge")
+        b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
         pg = b.new_context(locale="en-US").new_page()
         pg.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         pg.goto(f"{SITE}/s/{sid}?server=https://down.invalid&server2={SECOND}")

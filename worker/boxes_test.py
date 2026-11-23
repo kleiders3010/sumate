@@ -25,7 +25,7 @@ FIT = """(sel) => {
 }"""
 
 with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, channel="msedge")
+    b = p.chromium.launch(headless=True, channel="msedge", args=["--disable-gpu"])
     for w, h in ((740, 360), (1280, 720)):
         pg = b.new_page(viewport={"width": w, "height": h})
         pg.goto(SITE)

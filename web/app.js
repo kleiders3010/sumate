@@ -314,7 +314,7 @@ function openHome() {
     const b = el("button");
     b.append(el("b", "", s.title || t("Sheet")));
     b.append(el("span", s.key ? "tag" : "tag alt", s.key ? t("Yours") : s.door ? t("Check-in") : t("Signed up")));
-    b.onclick = () => go("/s/" + s.id + (!s.key && s.door ? "/door" : ""));
+    b.onclick = () => { go("/s/" + s.id + (!s.key && s.door ? "/door" : "")); };
     li.append(b);
     list.append(li);
   }

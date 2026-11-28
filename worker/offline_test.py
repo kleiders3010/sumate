@@ -15,7 +15,7 @@ with sync_playwright() as p:
     try:
         # polled from here: an async predicate in wait_for_function passed before anything was kept
         for _ in range(40):
-            if a.evaluate("async () => (await caches.keys()).includes('sumate-offline-1') && !!(await caches.match(new URL('offline', location.origin).href))"):
+            if a.evaluate("async () => (await caches.keys()).includes('sumate-offline-2') && !!(await caches.match(new URL('offline', location.origin).href))"):
                 break
             a.wait_for_timeout(500)
         else:

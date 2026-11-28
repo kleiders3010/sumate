@@ -126,13 +126,20 @@ document.addEventListener("click", (e) => {
 
 // ---------- small UI helpers ----------
 let toastTimer;
-function toast(text) {
+function toast(text, act) {
   const d = $("#toast");
   d.textContent = text;
+  // a toast may carry one action (Undo, U-S1); it stays a little longer then
+  if (act) {
+    const b = el("button", "toastAct", act.label);
+    b.type = "button";
+    b.onclick = () => { d.hidden = true; act.run(); };
+    d.append(" ", b);
+  }
   d.hidden = false;
   clearTimeout(toastTimer);
   // long enough to read: at least 5 s, more for long text (Juntos UX review U-J7)
-  toastTimer = setTimeout(() => (d.hidden = true), Math.max(5000, String(text).length * 70));
+  toastTimer = setTimeout(() => (d.hidden = true), Math.max(act ? 8000 : 5000, String(text).length * 70));
 }
 function showMsg(sel, text) {
   const m = $(sel);
@@ -227,6 +234,7 @@ const errTexts = () => ({
   notyet: t("Sign-ups aren't open yet."),
   locked: t("This one isn't taking sign-ups any more."),
   final: t("The list is final: ask the organizer if you can't come."),
+  late: t("Too late to undo. Sign up again if you like."),
   answer: t("Answer the questions marked as required."),
   gone: t("This sheet doesn't exist"),
   notday: t("You can check in from the day it happens."),
@@ -243,15 +251,34 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 function go(path, replace = false) {
-  history[replace ? "replaceState" : "pushState"](null, "", BASE + path.slice(1) + location.search);
+  history[replace ? "replaceState" : "pushState"]({ in: 1 }, "", BASE + path.slice(1) + location.search);
   route();
 }
-window.addEventListener("popstate", route);
+// (an entry this app pushed carries { in: 1 }; a page opened from a link gets one pushed, so its Back stays here and
+// can ask: APP-RULES 231)
+window.addEventListener("popstate", () => {
+  if (editPath && here() === editPath && !$("#edit").hidden) {
+    const to = editId ? "/s/" + editId : "/";
+    if (!editDirty()) { editPath = null; return go(to, true); }
+    history.pushState({ in: 1 }, "", location.href);
+    return askLeave(to);
+  }
+  route();
+});
 
 let current = null; // the open sheet's view from the server
 let pollTimer = null;
 
 function route() {
+  // Android / browser Back out of an editor with changes asks too (U-S3)
+  if (editPath && here() !== editPath) {
+    if (editDirty()) {
+      const to = here();
+      history.pushState(null, "", BASE + editPath.slice(1) + location.search);
+      return askLeave(to);
+    }
+    editPath = null;
+  }
   closeBoxes();
   clearInterval(pollTimer);
   const p = here();
@@ -560,12 +587,63 @@ async function openEditor(id, from) {
     s = { ...v.sheet, title: t("{title} (copy)", { title: v.sheet.title }).slice(0, 120), rows: v.sheet.rows.map(strip), asks: (v.sheet.asks || []).map(strip) };
     $("#editHead").textContent = t("Copy of the sheet");
   }
+  editView = null;
   if (id) {
     if (!keyFor(id)) return go("/s/" + id, true);
     const v = await api("/api/sheets/" + id, {}, id);
     if (v.error) return v.status === 404 ? show("gone") : go("/s/" + id, true); // no server: the sheet page says so
     s = v.sheet;
+    editView = v; // who is on which line, for Save to say whose sign-ups a removed line takes with it (U-S2)
   }
+  editFrom = from || null;
+  fillEditor(s);
+  editBase = editNow();
+  editPath = here();
+  if (!history.state?.in) history.pushState({ in: 1 }, "", location.href);
+  // what was typed here and not saved (Back, a closed tab, a phone that killed the app) comes back (U-S3)
+  let dr = null;
+  try { dr = JSON.parse(safeGet(draftKey()) || "null"); } catch {}
+  if (dr?.s && JSON.stringify(dr.s) !== editBase) {
+    fillEditor(dr.s);
+    $("#draftNote").hidden = false;
+    $("#draftDrop").onclick = () => { dropDraft(); fillEditor(s); editBase = editNow(); $("#draftNote").hidden = true; };
+  } else $("#draftNote").hidden = true;
+  show("edit");
+  if (!id) $("#title").focus();
+}
+
+// ---------- unsaved changes: a draft on this device, and Back asks (U-S3) ----------
+let editView = null, editFrom = null, editBase = "", editPath = null;
+const draftKey = () => "sumate.draft:" + (editId || (editFrom ? "copy:" + editFrom : "new"));
+const editNow = () => JSON.stringify(readEditor());
+const editDirty = () => !!editPath && editNow() !== editBase;
+const dropDraft = () => { try { localStorage.removeItem(draftKey()); } catch {} };
+function keepDraft() {
+  if (!editPath || here() !== editPath || $("#edit").hidden) return;
+  const now = editNow();
+  if (now === editBase) return dropDraft();
+  safeSet(draftKey(), JSON.stringify({ at: Date.now(), s: JSON.parse(now) }));
+}
+for (const ev of ["input", "change"]) $("#edit").addEventListener(ev, keepDraft);
+$("#edit").addEventListener("click", () => setTimeout(keepDraft, 0)); // the + / - / × buttons
+window.addEventListener("beforeunload", (ev) => { if (editDirty()) { keepDraft(); ev.preventDefault(); ev.returnValue = ""; } });
+function askLeave(to) {
+  ask(t("Leave without saving? What you changed here is lost."), t("Keep editing"), t("Leave"), () => { dropDraft(); editPath = null; go(to); });
+}
+// one question in a box: the safe answer first (it has the focus), the other one red
+function ask(text, keep, other, onOther, onKeep) {
+  $("#askText").textContent = text;
+  $("#askKeep").textContent = keep;
+  $("#askOther").textContent = other;
+  $("#askKeep").onclick = () => { $("#askBox").hidden = true; onKeep?.(); };
+  $("#askOther").onclick = () => { $("#askBox").hidden = true; onOther(); };
+  $("#askBox").hidden = false;
+  $("#askKeep").focus();
+}
+
+function fillEditor(s) {
+  $("#rows").replaceChildren();
+  $("#asks").replaceChildren();
   $("#title").value = s.title;
   $("#details").value = s.details;
   $("#place").value = s.place || "";
@@ -583,14 +661,12 @@ async function openEditor(id, from) {
   pickNum($("#perRowSel"), s.perRow);
   $("#limits").hidden = !(s.per || s.perRow);
   $("#timing").hidden = !(s.opens || s.closes || typeof s.lock === "number" || s.final);
-  for (const r of s.rows) $("#rows").append(rowEl(r));
+  for (const r of s.rows.length ? s.rows : [{ need: 1 }]) $("#rows").append(rowEl(r));
   for (const q of s.asks || []) $("#asks").append(askEl(q));
   $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
   for (const inp of [$("#opensAt"), $("#closesAt")]) delete inp.dataset.orig;
   $("#shiftSel").value = "0";
-  $("#shiftWrap").hidden = !from || !s.rows.some((r) => r.date);
-  show("edit");
-  if (!id) $("#title").focus();
+  $("#shiftWrap").hidden = !editFrom || !s.rows.some((r) => r.date);
 }
 
 $("#timingBtn").onclick = () => { $("#timing").hidden = !$("#timing").hidden; };
@@ -601,19 +677,66 @@ function pickNum(sel, n) {
   sel.value = n ? String(n) : "";
 }
 
-$("#editBack").onclick = () => (editId ? go("/s/" + editId) : go("/"));
+$("#editBack").onclick = () => {
+  const to = editId ? "/s/" + editId : "/";
+  if (editDirty()) return askLeave(to);
+  editPath = null;
+  go(to);
+};
 
-$("#saveBtn").onclick = async () => {
+/** What Save would take from people: a removed line takes its sign-ups, a removed question its answers (U-S2). */
+function lostBySave(s) {
+  const v = editView;
+  if (!v) return [];
+  const who = (list) => list.map((e) => e.name || t("Taken")).join(", ");
+  const rowIds = new Set(s.rows.map((r) => r.id).filter(Boolean));
+  const askIds = new Set(s.asks.map((q) => q.id).filter(Boolean));
+  const out = [];
+  for (const r of v.sheet.rows) {
+    if (r.heading || rowIds.has(r.id)) continue;
+    const on = v.entries.filter((e) => e.row === r.id);
+    if (on.length) out.push({ row: r, text: t("“{what}”: {who}", { what: r.text, who: who(on) }) });
+  }
+  for (const q of v.sheet.asks || []) {
+    if (askIds.has(q.id)) continue;
+    const on = v.entries.filter((e) => e.ans && e.ans[q.id]);
+    if (on.length) out.push({ ask: q, text: t("the answers to “{what}”: {who}", { what: q.text, who: who(on) }) });
+  }
+  return out;
+}
+/** Keep them: the lines and questions come back where they were. */
+function keepLost(lost) {
+  for (const x of lost) {
+    const [list, item, make] = x.row ? [$("#rows"), x.row, rowEl] : [$("#asks"), x.ask, askEl];
+    const had = [...list.children].find((li) => li.dataset.id === item.id);
+    if (had) { had.querySelector("input").value = item.text; continue; }
+    const at = (x.row ? editView.sheet.rows : editView.sheet.asks).indexOf(item);
+    const li = make(item);
+    if (list.children[at]) list.children[at].before(li); else list.append(li);
+  }
+  $("#addAsk").hidden = $("#asks").children.length >= MAX_ASKS;
+  keepDraft();
+}
+
+$("#saveBtn").onclick = () => saveEditor();
+async function saveEditor(sure = false) {
   const s = readEditor();
   if (!s.title.trim()) { showMsg("#editMsg", t("Give the sheet a title.")); $("#title").focus(); return; }
   if (!s.rows.some((r) => !r.heading)) { showMsg("#editMsg", t("Add at least one line.")); return; }
   if (s.opens && s.closes && s.closes <= s.opens) { showMsg("#editMsg", t("It has to close after it opens.")); $("#closesAt").focus(); return; }
+  const lost = sure ? [] : lostBySave(s);
+  if (lost.length) {
+    return ask(t("Saving takes these people's sign-ups off the sheet:") + "\n" + lost.map((x) => "• " + x.text).join("\n"),
+      t("Keep them"), t("Remove and save"), () => saveEditor(true), () => keepLost(lost));
+  }
   $("#saveBtn").disabled = true;
   const r = editId
     ? await api("/api/sheets/" + editId, { method: "PUT", body: s }, editId)
     : await api("/api/sheets", { method: "POST", body: s });
   $("#saveBtn").disabled = false;
   if (r.error) return showMsg("#editMsg", errText(r.error));
+  dropDraft();
+  editPath = null;
   if (editId) {
     rememberSheet(editId, { title: s.title.trim() });
     go("/s/" + editId);
@@ -622,7 +745,7 @@ $("#saveBtn").onclick = async () => {
     go("/s/" + r.id, true);
     openShare(true);
   }
-};
+}
 
 $("#delSheet").onclick = async () => {
   const b = $("#delSheet");
@@ -635,6 +758,8 @@ $("#delSheet").onclick = async () => {
   const r = await api("/api/sheets/" + editId, { method: "DELETE" }, editId);
   // only the sheet's own "gone" means it is no more; any other 404 is something on the way (second-pass S2-9)
   if (r.error && !(r.status === 404 && r.error === "gone")) return showMsg("#editMsg", errText(r.error));
+  dropDraft();
+  editPath = null;
   forgetSheet(editId);
   dropCopy(editId);
   toast(t("Sheet deleted"));
@@ -671,7 +796,9 @@ async function openSheet(id, quiet = false) {
   showMsg("#sheetMsg", "");
   const known = mySheets().find((s) => s.id === id);
   if (known || v.entries.some((e) => e.mine)) rememberSheet(id, { title: v.sheet.title, ...(v.old === 0 ? { t2: 1 } : {}) });
-  renderSheet();
+  // nothing new: the list is left as it is (U-S6), except once a minute for what time changes (closing, locks)
+  const same = quiet && drawn && drawn.changed === v.changed && drawn.owner === v.owner && !drawn.stale && drawn.tk === timeKey(v) && Date.now() - drawn.at < 60e3;
+  if (!same) renderSheet();
   if (!quiet) {
     show("sheet");
     poll(id);
@@ -699,10 +826,24 @@ function pacer(fn) {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { lastNews = Date.now(); pollDue = 0; } });
 function poll(id) {
-  pacer(() => { if ($("#signBox").hidden) return openSheet(id, true); });
+  pacer(() => { if ($("#signBox").hidden && !pressing) return openSheet(id, true); });
 }
 
 function renderSheet() {
+  // the control that had the focus gets it back after the list is drawn again (U-S6)
+  const had = document.activeElement?.closest?.("#srows [data-k]")?.dataset.k;
+  drawSheet();
+  drawn = { changed: current.changed, owner: current.owner, stale: current.stale, at: Date.now(), tk: timeKey(current) };
+  if (had) document.querySelector(`#srows [data-k="${had}"]`)?.focus({ preventScroll: true });
+}
+let drawn = null;
+// what the clock decides on the page (opening, closing, a line's lock, check-in from its day): a change of it is news too
+const timeKey = (v) => { const now = Date.now() + skew; return JSON.stringify([shut(v.sheet, null, now), ...v.sheet.rows.map((r) => [shut(v.sheet, r, now), canSelfIn(v.sheet, r, now)])]); };
+// a finger that is down (on its way to "Sign up") is not pulled from under it by a new list
+let pressing = false;
+document.addEventListener("pointerdown", () => { pressing = true; }, true);
+for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => { setTimeout(() => { pressing = false; }, 300); }, true);
+function drawSheet() {
   const v = current;
   const s = v.sheet;
   const live = !v.stale; // a copy saved on this device: read only
@@ -777,10 +918,12 @@ function renderSheet() {
           c.title = e.mine ? t("Change my sign-up") : t("Change {name}", { name: e.name });
           c.setAttribute("aria-label", c.title);
           c.onclick = () => openSign(r, false, e);
+          c.dataset.k = "ed:" + e.id;
           chip.append(c);
           const x = el("button", "x", "×");
           x.title = e.mine ? t("Remove me") : t("Remove {name}", { name: e.name });
           x.setAttribute("aria-label", x.title);
+          x.dataset.k = "x:" + e.id;
           x.onclick = () => removeEntry(e);
           chip.append(x);
         }
@@ -807,10 +950,12 @@ function renderSheet() {
           c.title = e.mine ? t("Change my sign-up") : t("Change {name}", { name: e.name });
           c.setAttribute("aria-label", c.title);
           c.onclick = () => openSign(r, false, e);
+          c.dataset.k = "ed:" + e.id;
           chip.append(c);
           const x = el("button", "x", "×");
           x.title = e.mine ? t("Remove me") : t("Remove {name}", { name: e.name });
           x.setAttribute("aria-label", x.title);
+          x.dataset.k = "x:" + e.id;
           x.onclick = () => removeEntry(e);
           chip.append(x);
         }
@@ -824,11 +969,13 @@ function renderSheet() {
       const b = el("button", "btn ghost selfIn" + (e.here ? " on" : ""), e.here ? "✓ " + t("You're checked in") : t("I'm here: check in"));
       b.setAttribute("aria-pressed", String(!!e.here));
       if (list.filter((x) => x.mine).length > 1 && e.name) b.textContent += " · " + e.name;
+      b.dataset.k = "in:" + e.id;
       b.onclick = () => markHere(e, !e.here, () => renderSheet());
       card.append(b);
     }
     if (r.date && list.some((e) => e.mine)) {
       const c = el("button", "btn link cal", "📅 " + t("Add to my calendar"));
+      c.dataset.k = "cal:" + r.id;
       c.onclick = () => openCal(r);
       card.append(c);
     }
@@ -839,6 +986,7 @@ function renderSheet() {
     if (atMost && live && (!full || s.wait) && !why) card.append(el("span", "shut", t("You have the most one person can take")));
     else if (live && (!full || s.wait) && (!why || v.owner)) {
       const b = el("button", "btn ghost join" + (full ? " wait" : ""), full ? t("Join the waiting list") : t("Sign up"));
+      b.dataset.k = "join:" + r.id;
       b.onclick = () => openSign(r);
       card.append(b);
     }
@@ -850,6 +998,8 @@ function renderSheet() {
   $("#count").textContent = counted
     ? t("{n} of {m} spots filled", { n: have, m: need })
     : t("{n} signed up", { n: v.entries.length });
+  // a name with no ✎ / ×: put down from another phone or browser, and only that one (or the organizer) can change it (U-S5)
+  $("#otherPhone").hidden = !live || v.owner || !v.entries.some((e) => !e.mine);
 }
 
 // ---------- check-in (like SignUpGenius' Participant Check-In) ----------
@@ -958,7 +1108,17 @@ async function removeEntry(e) {
   current = r;
   keepCopy(id, r);
   renderSheet();
-  toast(e.mine ? t("Removed you") : t("Removed {name}", { name: e.name }));
+  // Undo puts the same sign-up back in its old place (the server keeps it for a minute, U-S1)
+  toast(e.mine ? t("Removed you") : t("Removed {name}", { name: e.name }), { label: t("Undo"), run: () => putBack(id, e) });
+}
+async function putBack(id, e) {
+  const r = await api(`/api/sheets/${id}/signups/${e.id}/back`, { method: "POST" }, id);
+  if (r.error) return toast(errText(r.error));
+  if (current?.id !== id) return;
+  current = r;
+  keepCopy(id, r);
+  renderSheet();
+  toast(e.mine ? t("You're back on the list") : t("{name} is back on the list", { name: e.name || t("Taken") }));
 }
 
 // ---------- sign-up box ----------
@@ -1135,6 +1295,7 @@ $("#signForm").onsubmit = async (e) => {
   // a line with a day: like a thank-you page, straight to the calendar buttons (it says "You're in" itself)
   if (signRow.date) openCal(signRow, true);
   else {
+    toast(t("You're in. To change or remove it later, open this link on this phone."));
     justJoined = signRow.id;
     renderSheet();
     $(".srow.just")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1160,6 +1321,7 @@ function openCal(r, justIn = false) {
   calRow = r;
   const ev = calEvent(r);
   $("#calHi").textContent = justIn ? t("You're in. Add it to your calendar?") : t("Add to your calendar");
+  $("#calPhone").hidden = !justIn; // U-S5
   $("#calWhat").textContent = r.text;
   const w = whenText(r, LANG, current.sheet.tz);
   $("#calWhen").textContent = w.text + (w.zone ? " · " + t("{place} time", { place: w.zone }) : "");
@@ -1194,6 +1356,9 @@ function openShare(firstTime = false) {
   const key = keyFor(id);
   $("#ownerLinkWrap").hidden = !key;
   $("#ownerLink").value = key ? url + "#k=" + key : "";
+  // right after the first Save the organizer link comes first, as a step of its own (U-S4)
+  $("#shareBox").classList.toggle("first", !!(firstTime && key));
+  $("#ownerFirst").hidden = !(firstTime && key);
   $("#nativeShare").hidden = !navigator.share;
   showDoorLink();
   const q = $("#qr");
@@ -1229,6 +1394,16 @@ $("#doorOff").onclick = () => setDoor(false);
 $("#copyDoor").onclick = () => copy($("#doorLink").value);
 $("#copyLink").onclick = () => copy($("#shareLink").value);
 $("#copyOwner").onclick = () => copy($("#ownerLink").value);
+// to the person's own mail or chat: the phone's share sheet, else a mail to themselves (they pick the address)
+$("#sendOwner").onclick = async () => {
+  const link = $("#ownerLink").value;
+  const title = t("Sumate organizer link (private): {title}", { title: current?.sheet?.title || "" });
+  if (navigator.share) {
+    try { await navigator.share({ title, text: title, url: link }); return; } catch (e) { if (e?.name === "AbortError") return; }
+  }
+  location.href = "mailto:?subject=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(link);
+};
+$("#ownerLinkBtn").onclick = () => { openShare(); $("#ownerLink").scrollIntoView({ block: "center" }); $("#copyOwner").focus(); };
 // a new organizer link (round 3, S7): for one shared by mistake. Two taps; the old one stops working everywhere.
 $("#keyNew").onclick = async () => {
   const b = $("#keyNew");
@@ -1356,6 +1531,7 @@ if (EMBED) {
 }
 
 function closeBoxes() {
+  $("#askBox").hidden = true;
   $("#signBox").hidden = true;
   $("#shareBox").hidden = true;
   $("#calBox").hidden = true;

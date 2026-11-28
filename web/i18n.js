@@ -224,6 +224,40 @@ const DICT = {
     "Remove {name}": "Quitar a {name}",
     "Sign up": "Anotarme",
     "{n} of {m} spots filled": "{n} de {m} lugares ocupados",
+    // UX review 2026-11-28 (U-S1..U-S6)
+    "Undo": "Deshacer",
+    "Too late to undo. Sign up again if you like.": "Ya no se puede deshacer. Si querés, anotate de nuevo.",
+    "You're back on the list": "Volviste a la lista",
+    "{name} is back on the list": "{name} volvió a la lista",
+    "You're in. To change or remove it later, open this link on this phone.": "Listo, estás anotado. Para cambiarlo o quitarlo después, abrí este enlace en este teléfono.",
+    "To change or remove it later, open this link on this phone.": "Para cambiarlo o quitarlo después, abrí este enlace en este teléfono.",
+    "Signed up from another phone or browser? Only that one can change it: open the link there, or ask the organizer.": "¿Te anotaste desde otro teléfono o navegador? Solo ese puede cambiarlo: abrí el enlace ahí, o pedíselo a quien organiza.",
+    "Your unsaved changes are back.": "Volvieron tus cambios sin guardar.",
+    "Discard them": "Descartarlos",
+    "Leave without saving? What you changed here is lost.": "¿Salir sin guardar? Se pierde lo que cambiaste acá.",
+    "Keep editing": "Seguir editando",
+    "Leave": "Salir",
+    "Saving takes these people's sign-ups off the sheet:": "Al guardar, se borran de la lista las anotaciones de estas personas:",
+    "the answers to “{what}”: {who}": "las respuestas a “{what}”: {who}",
+    "Keep them": "Dejarlas",
+    "Remove and save": "Quitar y guardar",
+    "Link for people to sign up": "Enlace para que la gente se anote",
+    "Keep your organizer link": "Guardá tu enlace de organizador",
+    "🔒 Your private organizer link: don't share it.": "🔒 Tu enlace privado de organizador: no lo compartas.",
+    "Whoever has it can edit the sheet and remove anyone. It's the only way to edit, also from another phone, another browser, or after clearing this one, so keep it somewhere safe.": "Quien lo tenga puede editar la lista y quitar a cualquiera. Es la única forma de editar, también desde otro teléfono, otro navegador o después de borrar este, así que guardalo en un lugar seguro.",
+    "Your private organizer link": "Tu enlace privado de organizador",
+    "Send it to myself": "Mandármelo",
+    "🔒 Organizer link": "🔒 Enlace de organizador",
+    "Sumate organizer link (private): {title}": "Enlace de organizador de Sumate (privado): {title}",
+    // one-forms (APP-RULES 234): t() picks these when n is 1
+    "{n} slot": "{n} turno",
+    "Added {n} slot": "Se agregó {n} turno",
+    "Remove {n} sign-up": "Quitar {n} anotación",
+    "Tap again to remove {n} sign-up for everyone": "Tocá de nuevo para quitar {n} anotación para todos",
+    "Removed {n} sign-up": "Se quitó {n} anotación",
+    "one:{n} signed up": "{n} anotado",
+    "one:{n} taken": "{n} tomado",
+    "{n} of {m} spot filled": "{n} de {m} lugar ocupado",
     "Removed you": "Te sacamos de la lista",
     "Removed {name}": "Quitaste a {name}",
     "Change my sign-up": "Cambiar lo mío",
@@ -269,9 +303,24 @@ function safeGet(k) {
 export const LANG = pick();
 const table = LANG !== "en" && Object.hasOwn(DICT, LANG) ? DICT[LANG] : {};
 
+// The one-form of a counted text (APP-RULES 234, like Ronda's): used when n is 1 ("{n} of {m}" texts: when m is 1).
+// A "one:" key is only a key: in English it reads the same as the plural one.
+export const ONE = {
+  "{n} slots": "{n} slot",
+  "Added {n} slots": "Added {n} slot",
+  "Remove {n} sign-ups": "Remove {n} sign-up",
+  "Tap again to remove {n} sign-ups for everyone": "Tap again to remove {n} sign-up for everyone",
+  "Removed {n} sign-ups": "Removed {n} sign-up",
+  "{n} signed up": "one:{n} signed up",
+  "{n} taken": "one:{n} taken",
+  "{n} of {m} spots filled": "{n} of {m} spot filled",
+};
+
 /** t("{name} left", { name }) -> the text in the UI language, placeholders filled. */
 export function t(text, vars) {
-  let s = Object.hasOwn(table, text) ? table[text] : text;
+  const count = vars && (text.includes("{m}") ? vars.m : vars.n);
+  const key = vars && count !== "" && Number(count) === 1 && Object.hasOwn(ONE, text) ? ONE[text] : text;
+  let s = Object.hasOwn(table, key) ? table[key] : key.startsWith("one:") ? text : key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
   return s;
 }

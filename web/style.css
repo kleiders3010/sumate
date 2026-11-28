@@ -116,9 +116,16 @@ a.btn { text-align: center; text-decoration: none; }
 .person.me { background: var(--mine); }
 .person.anon { background: #eeeae1; color: var(--muted); }
 .person i { font-style: normal; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.person .x, .person .ed { width: 26px; height: 26px; border-radius: 50%; color: var(--muted); font-size: 17px; line-height: 1; }
+/* 44 px to tap, 8 px apart: a finger aiming at ✎ doesn't land on × (UX review 2026-11-28 U-S1) */
+.person { padding-top: 0; padding-bottom: 0; min-height: 44px; }
+.person .x, .person .ed { width: 44px; height: 44px; flex: none; border-radius: 50%; color: var(--muted); font-size: 18px; line-height: 1; }
 .person .x:hover, .person .ed:hover { background: rgba(0, 0, 0, .08); }
-.person .ed { font-size: 14px; margin-right: -4px; }
+.person .ed { font-size: 15px; }
+.person .ed + .x { margin-left: 8px; }
+.toastAct { margin-left: 10px; color: #fff; font-weight: 700; text-decoration: underline; min-height: 32px; }
+.asktext { margin: 0; white-space: pre-line; font-weight: 600; }
+#shareBox.first #ownerLinkWrap { order: -1; }
+.ownerlink .secret { background: #fff; border-style: dashed; }
 .join { align-self: flex-start; padding: 8px 18px; }
 .shift { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .shift span { flex-basis: 100%; }

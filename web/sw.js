@@ -1,7 +1,7 @@
 // The page shown with no connection (Juntos UX review U-J14, ported: the Android app showed Chrome's error page).
 // Pages and files still come fresh from the server every time (network first); only when the network fails is the
 // small offline page shown. Nothing else is cached.
-const CACHE = "sumate-offline-1";
+const CACHE = "sumate-offline-2";
 const OFFLINE = new URL("offline", self.registration.scope).href;
 const FILES = ["offline", "offline.js", "i18n.js", "feedback.js", "style.css", "img/icon-192.png"].map((f) => new URL(f, self.registration.scope).href);
 

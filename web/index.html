@@ -37,6 +37,7 @@
     <button id="saveBtn" class="btn primary">Save</button>
   </header>
   <div class="col">
+    <p id="draftNote" class="note" hidden>Your unsaved changes are back. <button id="draftDrop" type="button" class="btn link">Discard them</button></p>
     <input id="title" class="title-input" maxlength="120" placeholder="Title, e.g. Saturday lunch at grandma's">
     <textarea id="details" rows="3" maxlength="2000" placeholder="When, where, anything people should know (optional)"></textarea>
     <input id="place" maxlength="120" placeholder="Where (optional)">
@@ -155,9 +156,11 @@
     <p id="closedNote" class="note" hidden>Sign-ups are closed.</p>
     <div id="ownerNote" class="note owner" hidden></div>
     <div id="srows" class="srows"></div>
+    <p id="otherPhone" class="note small" hidden>Signed up from another phone or browser? Only that one can change it: open the link there, or ask the organizer.</p>
     <div id="ownerTools" class="tools" hidden>
       <button id="csvBtn" class="btn ghost">Download (CSV)</button>
       <button id="copyBtn" class="btn ghost">Make a copy</button>
+      <button id="ownerLinkBtn" class="btn ghost">🔒 Organizer link</button>
       <button id="doorBtn" class="btn ghost">✓ Check-in</button>
       <button id="cleanBtn" class="btn ghost">Remove recent sign-ups</button>
     </div>
@@ -246,6 +249,7 @@
     <p id="calHi" class="small">Add to your calendar</p>
     <b id="calWhat" class="boxtitle"></b>
     <p id="calWhen" class="small"></p>
+    <p id="calPhone" class="small" hidden>To change or remove it later, open this link on this phone.</p>
     <a id="calGoogle" class="btn ghost wide" target="_blank" rel="noopener">Google Calendar</a>
     <a id="calOutlook" class="btn ghost wide" target="_blank" rel="noopener">Outlook.com</a>
     <label class="shift remind"><span>Remind me</span>
@@ -267,7 +271,8 @@
   <div class="box">
     <b class="boxtitle">Share this sheet</b>
     <div id="qr" class="qr"></div>
-    <div class="linkline"><input id="shareLink" readonly><button id="copyLink" class="btn primary">Copy</button></div>
+    <p class="small linkfor"><b>Link for people to sign up</b></p>
+    <div class="linkline"><input id="shareLink" readonly aria-label="Link for people to sign up"><button id="copyLink" class="btn primary">Copy</button></div>
     <button id="nativeShare" class="btn ghost wide" hidden>Send with…</button>
     <button id="embedBtn" type="button" class="btn link">Put it on a website</button>
     <div id="embedWrap" class="embedcode" hidden>
@@ -280,8 +285,10 @@
       <p class="small">Paste it into your page's HTML.</p>
     </div>
     <div id="ownerLinkWrap" class="ownerlink" hidden>
-      <p class="small"><b>Your organizer link</b>: keep it private. It's the only way to edit.</p>
-      <div class="linkline"><input id="ownerLink" readonly><button id="copyOwner" class="btn ghost">Copy</button></div>
+      <b id="ownerFirst" class="boxtitle" hidden>Keep your organizer link</b>
+      <p class="small"><b>🔒 Your private organizer link: don't share it.</b> Whoever has it can edit the sheet and remove anyone. It's the only way to edit, also from another phone, another browser, or after clearing this one, so keep it somewhere safe.</p>
+      <div class="linkline"><input id="ownerLink" class="secret" readonly aria-label="Your private organizer link"><button id="copyOwner" class="btn ghost">Copy</button></div>
+      <button id="sendOwner" type="button" class="btn primary wide">Send it to myself</button>
       <div class="tools"><button id="keyNew" type="button" class="btn link">New organizer link (the old one stops working)</button></div>
     </div>
     <div id="doorLinkWrap" class="ownerlink" hidden>
@@ -293,6 +300,14 @@
       </div>
     </div>
     <button id="shareClose" class="btn link">Close</button>
+  </div>
+</div>
+
+<div id="askBox" class="sheetbox" role="alertdialog" aria-labelledby="askText" hidden>
+  <div class="box">
+    <p id="askText" class="asktext"></p>
+    <button id="askKeep" type="button" class="btn primary wide"></button>
+    <button id="askOther" type="button" class="btn ghost wide danger-text"></button>
   </div>
 </div>
 

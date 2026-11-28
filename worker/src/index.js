@@ -17,6 +17,8 @@ const KEEP_MS = 90 * 24 * 3600 * 1000;
 const MAX_ROWS = 200;
 const MAX_ENTRIES = 3000;
 const MAX_GONE = 3000;
+// a sign-up removed by one tap can be put back this long, in its old place (UX review 2026-11-28 U-S1)
+const UNDO_MS = 60e3;
 const MAX_BODY = 64 * 1024;
 // One size budget from door to disk (safety round 3, S2), all in bytes: a sheet takes no change that makes it bigger
 // than MAX_BYTES; two such copies merged (each server took changes while the copies were apart) still fit MAX_SYNC,
@@ -434,6 +436,15 @@ export class Sheet {
   }
 
   /** A change made here: kept, and sent to the other server right after. */
+  async undoList() {
+    if (!this.undo) { try { this.undo = (await this.state.storage.get("u")) || []; } catch { this.undo = []; } }
+    const now = Date.now();
+    return (this.undo = this.undo.filter((x) => now - x.t < UNDO_MS));
+  }
+  async keepUndo(list) {
+    this.undo = list.slice(-20);
+    try { await this.state.storage.put("u", this.undo); } catch {}
+  }
   async save(touched = true) {
     if (touched) this.d.changed = Date.now();
     this.d.v = (this.d.v || 0) + 1;
@@ -825,6 +836,26 @@ export class Sheet {
       if (d.sheet.final && !this.isOwner(req) && shut(d.sheet, row)) return json({ error: "final" }, 409);
       d.entries = d.entries.filter((x) => x !== e);
       d.gone = goneOf(d.gone, [goneMark(e.id)]);
+      // kept apart from the sheet (never copied to the other server) for Undo
+      await this.keepUndo([...(await this.undoList()), { e, t: Date.now() }]);
+      await this.save();
+      return json(this.view(req));
+    }
+
+    // Undo of a removal (U-S1): the same sign-up back with its old time, so it has its old place again (the waiting
+    // list is worked out from the times: whoever moved up in the meantime is back where they were). Under a new id,
+    // because the old one is marked gone on both servers.
+    const bk = rest.match(/^\/signups\/([a-z0-9]{8})\/back$/);
+    if (bk && req.method === "POST") {
+      const list = await this.undoList();
+      const u = list.find((x) => x.e.id === bk[1]);
+      if (!u) return json({ error: "late" }, 409);
+      if (!tokensOf(req).includes(u.e.token) && !this.isOwner(req)) return json({ error: "not yours" }, 403);
+      if (!d.sheet.rows.some((r) => r.id === u.e.row && !r.heading)) return json({ error: "late" }, 409);
+      const entry = { ...u.e, id: randomToken(8) };
+      if (d.entries.length >= MAX_ENTRIES || !this.fits([...d.entries, entry])) return json({ error: "big" }, 409);
+      d.entries.push(entry);
+      await this.keepUndo(list.filter((x) => x !== u));
       await this.save();
       return json(this.view(req));
     }

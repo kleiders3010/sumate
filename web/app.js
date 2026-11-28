@@ -20,6 +20,13 @@ const el = (tag, cls, text) => {
 };
 
 translatePage();
+// a field named only by its placeholder gets it as its accessible name too (APP-RULES 244, from Ronda U-R12)
+function nameFields(root = document) {
+  for (const f of root.querySelectorAll("input[placeholder]:not([aria-label]), textarea[placeholder]:not([aria-label])"))
+    if (!f.labels?.length) f.setAttribute("aria-label", f.placeholder);
+}
+nameFields();
+new MutationObserver(() => nameFields()).observe(document.body, { childList: true, subtree: true });
 
 // ---------- device memory: name, a device token (to remove your own sign-ups), your sheets ----------
 function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -257,6 +264,8 @@ function go(path, replace = false) {
 // (an entry this app pushed carries { in: 1 }; a page opened from a link gets one pushed, so its Back stays here and
 // can ask: APP-RULES 231)
 window.addEventListener("popstate", () => {
+  if (boxPopSkip) { boxPopSkip = false; return; }
+  if (boxOpen()) return closeBoxes(); // Back closes the open box (APP-RULES 243)
   if (editPath && here() === editPath && !$("#edit").hidden) {
     const to = editId ? "/s/" + editId : "/";
     if (!editDirty()) { editPath = null; return go(to, true); }
@@ -1537,8 +1546,49 @@ function closeBoxes() {
   $("#calBox").hidden = true;
 }
 for (const box of [$("#signBox"), $("#shareBox"), $("#calBox")]) {
-  box.addEventListener("click", (e) => { if (e.target === box) closeBoxes(); });
+  // a box with something typed in it isn't thrown away by a tap outside (APP-RULES 243, from Ronda U-R16)
+  box.addEventListener("click", (e) => { if (e.target === box && !box.changed) closeBoxes(); });
 }
+// The boxes as dialogs (APP-RULES 243): named by their title, Tab stays inside, the focus goes back where it was,
+// and Back closes the open box instead of leaving the page under it (one history entry while it is open).
+const BOXES = ["signBox", "shareBox", "calBox", "askBox"].map((id) => $("#" + id));
+const boxOpen = () => BOXES.find((b) => !b.hidden);
+let boxPopSkip = false;
+for (const box of BOXES) {
+  if (!box.getAttribute("role")) box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  const head = box.querySelector(".boxtitle");
+  if (!box.hasAttribute("aria-labelledby") && head) {
+    head.id ||= box.id + "Head";
+    box.setAttribute("aria-labelledby", head.id);
+  }
+  box.addEventListener("input", () => { box.changed = true; });
+  box.addEventListener("change", () => { box.changed = true; });
+  new MutationObserver(() => {
+    if (!box.hidden && !box.isOpen) {
+      box.isOpen = true;
+      box.changed = false;
+      box.back = document.activeElement;
+      history.pushState({ ...(history.state || {}), box: 1 }, "", location.href);
+    } else if (box.hidden && box.isOpen) {
+      box.isOpen = false;
+      const a = document.activeElement;
+      if (box.back?.isConnected && (!a || a === document.body || box.contains(a))) box.back.focus({ preventScroll: true });
+      // closed by its own buttons: take its history entry away again (not when Back closed it, nor after a go())
+      if (history.state?.box) { boxPopSkip = true; history.back(); }
+    }
+  }).observe(box, { attributes: true, attributeFilter: ["hidden"] });
+}
+document.addEventListener("keydown", (e) => {
+  const box = e.key === "Tab" && boxOpen();
+  if (!box) return;
+  const f = [...box.querySelectorAll("button, input, select, textarea, a[href]")].filter((x) => !x.disabled && x.offsetParent);
+  if (!f.length) return;
+  const a = f[0], z = f[f.length - 1], at = document.activeElement;
+  if (!box.contains(at)) { e.preventDefault(); a.focus(); }
+  else if (e.shiftKey && at === a) { e.preventDefault(); z.focus(); }
+  else if (!e.shiftKey && at === z) { e.preventDefault(); a.focus(); }
+});
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeBoxes(); });
 
 $("#sheetBack").onclick = () => go("/");

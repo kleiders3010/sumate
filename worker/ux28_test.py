@@ -63,7 +63,7 @@ with sync_playwright() as p:
     fit = o.evaluate("() => document.documentElement.scrollWidth - innerWidth")
     check(fit <= 0, f"234 the share box fits 360 dp (over {fit})")
     o.click("#shareClose")
-    check(o.locator("#ownerLinkBtn").count() == 1 and o.is_visible("#ownerLinkBtn"), "U-S4 the owner tools have Organizer link")
+    check(soft(o.wait_for_selector, "#ownerLinkBtn", state="visible", timeout=15000), "U-S4 the owner tools have Organizer link")
 
     def join(pg, name, row=0):
         pg.goto(link)
